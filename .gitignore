@@ -1,0 +1,16 @@
+__pycache__/
+venv/
+*.pyc
+
+# scan outputs
+*.oni
+*.ply
+*.obj
+*.stl
+*.mp4
+*.db
+*.g2o
+*.dot
+rgb_*/
+ros_logs/
+output/
