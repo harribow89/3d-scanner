@@ -14,3 +14,6 @@ venv/
 rgb_*/
 ros_logs/
 output/
+
+# db backups from resets
+rtabmap.db.bak.*
