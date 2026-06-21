@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-jazzy-rtabmap-launch \
       ros-jazzy-rtabmap \
       ros-jazzy-openni2-camera \
+      ros-jazzy-rviz2 \
+      ros-jazzy-rtabmap-rviz-plugins \
       openni2-utils \
       libopenni2-0 \
     && rm -rf /var/lib/apt/lists/*

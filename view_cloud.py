@@ -1,6 +1,21 @@
 #!/usr/bin/env python3
 """Quick point cloud viewer — downsamples heavy files before display."""
+import os
 import sys
+
+# Open3D's bundled GLFW can't create an OpenGL window on a native Wayland
+# session — it fails with "Failed to initialize GLEW / Failed creating OpenGL
+# window". Force the GL/Qt stack onto X11 (XWayland) before importing open3d so
+# the viewer works both from the CLI and from the GUI's "View in 3D" button.
+# GLFW selects its backend from XDG_SESSION_TYPE / WAYLAND_DISPLAY, so we must
+# *force* X11 here (setdefault won't override an existing "wayland" value).
+if os.environ.get("XDG_SESSION_TYPE") == "wayland" or os.environ.get("WAYLAND_DISPLAY"):
+    os.environ.pop("WAYLAND_DISPLAY", None)
+    os.environ["XDG_SESSION_TYPE"] = "x11"
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
+    os.environ["GDK_BACKEND"] = "x11"
+    os.environ.setdefault("DISPLAY", ":0")  # XWayland display for the fallback
+
 import open3d as o3d
 
 path = sys.argv[1] if len(sys.argv) > 1 else "output/scan_20260426_001324_cloud_cloud.ply"

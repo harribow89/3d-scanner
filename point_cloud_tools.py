@@ -70,12 +70,114 @@ def _clean_cloud(cloud, voxel):
         cleaned, _ = cleaned.remove_statistical_outlier(nb_neighbors=24, std_ratio=1.8)
 
     if len(cleaned.points) > 400:
-        cleaned, _ = cleaned.remove_radius_outlier(
+        filtered, _ = cleaned.remove_radius_outlier(
             nb_points=12,
             radius=max(voxel * 3.0, 0.01),
         )
+        # Guard: on sparse/large clouds (e.g. a room-scale RTAB-Map export) this
+        # radius can reject everything. Only apply it when it keeps a sane share
+        # of points; otherwise leave the statistically-cleaned cloud as-is.
+        if len(filtered.points) >= 0.2 * len(cleaned.points):
+            cleaned = filtered
 
     return cleaned
+
+
+def _prepare_mesh_cloud(cloud, voxel):
+    working = _finite_cloud(cloud)
+    if len(working.points) == 0:
+        return working
+
+    if len(working.points) > 180000:
+        working = working.voxel_down_sample(max(voxel * 1.5, 0.0015))
+
+    search_radius = max(voxel * 4.0, 0.01)
+    working.estimate_normals(
+        search_param=o3d.geometry.KDTreeSearchParamHybrid(
+            radius=search_radius,
+            max_nn=30,
+        )
+    )
+
+    if len(working.points) <= 50000:
+        try:
+            working.orient_normals_consistent_tangent_plane(
+                max(10, min(50, len(working.points) // 50 or 10))
+            )
+        except RuntimeError:
+            pass
+
+    return working
+
+
+def _reconstruct_mesh(cloud, voxel):
+    if len(cloud.points) < 80:
+        raise ValueError("Need at least 80 points to build a mesh")
+
+    working = _prepare_mesh_cloud(cloud, voxel)
+    if len(working.points) == 0:
+        raise ValueError("Mesh preparation removed all points")
+
+    depth = 7 if len(working.points) < 5000 else 8 if len(working.points) < 30000 else 9
+    try:
+        mesh, _densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+            working,
+            depth=depth,
+        )
+        mesh = mesh.crop(working.get_axis_aligned_bounding_box())
+        method = "poisson"
+    except Exception:
+        radii = o3d.utility.DoubleVector([
+            max(voxel * 2.0, 0.005),
+            max(voxel * 4.0, 0.01),
+            max(voxel * 8.0, 0.02),
+        ])
+        mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+            working,
+            radii,
+        )
+        method = "ball_pivoting"
+
+    mesh.remove_degenerate_triangles()
+    mesh.remove_duplicated_triangles()
+    mesh.remove_duplicated_vertices()
+    mesh.remove_non_manifold_edges()
+
+    if len(mesh.triangles) > 250000:
+        target = max(1000, len(mesh.triangles) // 2)
+        mesh = mesh.simplify_quadric_decimation(target)
+
+    mesh.compute_vertex_normals()
+    return mesh, {
+        "method": method,
+        "depth": depth,
+        "vertices": int(len(mesh.vertices)),
+        "triangles": int(len(mesh.triangles)),
+    }
+
+
+def point_cloud_to_stl(input_path, output_path=None, voxel=0.003):
+    cloud = o3d.io.read_point_cloud(input_path)
+    if len(cloud.points) == 0:
+        raise ValueError(f"No points found in {input_path}")
+
+    cleaned = _clean_cloud(cloud, voxel)
+    if len(cleaned.points) == 0:
+        raise ValueError(f"Point cloud became empty after cleanup: {input_path}")
+
+    mesh, meta = _reconstruct_mesh(cleaned, voxel)
+    output_path = output_path or os.path.splitext(input_path)[0] + ".stl"
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    if not o3d.io.write_triangle_mesh(output_path, mesh, write_ascii=False):
+        raise IOError(f"Failed to write STL mesh to {output_path}")
+
+    return {
+        **meta,
+        "path": output_path,
+        "input_points": int(len(cloud.points)),
+        "clean_points": int(len(cleaned.points)),
+        "mesh_points": int(len(mesh.vertices)),
+    }
 
 
 def _largest_cluster(cloud, voxel):
@@ -254,3 +356,45 @@ def isolate_point_cloud_variants(input_path, output_dir=None, profile="tabletop_
         json.dump(summary, handle, indent=2)
     summary["summary_path"] = summary_path
     return summary
+
+
+if __name__ == "__main__":
+    import sys
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Isolate objects from point clouds")
+    parser.add_argument("input", help="Input PLY file")
+    parser.add_argument("--output-dir", default=None, help="Output directory (default: input dir)")
+    parser.add_argument("--strategy", default="tabletop_object", choices=list(ISOLATION_PROFILES.keys()), help="Isolation strategy")
+    parser.add_argument("--voxel", type=float, default=0.003, help="Voxel size (m)")
+    parser.add_argument("--mesh-output", default=None, help="Optional STL mesh output path")
+    parser.add_argument("--mesh-voxel", type=float, default=0.003, help="Voxel size used for STL reconstruction")
+
+    args = parser.parse_args()
+
+    if not os.path.exists(args.input):
+        print(f"ERROR: {args.input} not found", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        summary = isolate_point_cloud_variants(
+            args.input,
+            output_dir=args.output_dir,
+            profile=args.strategy,
+            voxel=args.voxel
+        )
+        print(f"Success: {summary['summary_path']}")
+        for result in summary["profiles"]:
+            print(f"  {result['profile']}: {result['points']} points -> {result['path']}")
+        if args.mesh_output:
+            mesh_info = point_cloud_to_stl(
+                summary["recommended_path"],
+                output_path=args.mesh_output,
+                voxel=args.mesh_voxel,
+            )
+            print(
+                f"  STL: {mesh_info['path']} ({mesh_info['triangles']} triangles, {mesh_info['method']})"
+            )
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)

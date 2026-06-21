@@ -1,0 +1,10 @@
+{
+  "_comment": "Camera roster for the multi-Xtion rig. FIRST entry is the reference frame (its <ns>_link is the world root). Identify each camera by stable USB 'port' path (from /sys/bus/usb/devices, e.g. lsusb tree) — the bus/address changes on every re-enumeration, so DO NOT hardcode addresses. multi_camera.launch.py resolves port->current OpenNI2 URI at launch. Optional 'dev' is a fallback URI if 'port' can't be resolved. Depth/color QVGA_30Hz for USB bandwidth. NOTE: 3 Xtions exceed one USB-2 controller's isochronous bandwidth simultaneously; station_scan.py captures them sequentially to avoid this. Port->camera mapping sets the fan order (camera1 ref, camera2 -40deg, camera3 -80deg) — if the fused sweep fans the wrong way, swap ports here.",
+  "depth_mode": "QVGA_30Hz",
+  "color_mode": "QVGA_30Hz",
+  "cameras": [
+    { "ns": "camera1", "port": "1-3" },
+    { "ns": "camera2", "port": "1-5" },
+    { "ns": "camera3", "port": "1-8" }
+  ]
+}

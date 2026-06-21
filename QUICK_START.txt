@@ -1,0 +1,37 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                   ASUS Xtion 3D Scanner - Quick Start                      ║
+║                                                                            ║
+║  GUI LAUNCH:                                                              ║
+║    cd /home/jim/Desktop/scanner/3d-scanner                               ║
+║    ./launch_gui.sh                                                       ║
+║                                                                            ║
+║  TABS OVERVIEW:                                                          ║
+║    1. Camera Preview     → Test stream, capture frames                   ║
+║    2. Mapping           → Quick scan or full hands-off SLAM              ║
+║    3. Export            → Save clouds, clean with isolation strategies   ║
+║    4. Multi-Camera      → Calibrate & view 2+ cameras (when assembled)   ║
+║    5. Settings          → Adjust parameters, clear DB, rebuild Docker    ║
+║    6. Log               → Command output & diagnostics                    ║
+║                                                                            ║
+║  TYPICAL WORKFLOW:                                                       ║
+║    1. Launch GUI → ./launch_gui.sh                                       ║
+║    2. Camera Preview → "Launch Live Preview" (verify ~30 Hz)             ║
+║    3. Mapping → "Full SLAM GUI" (move camera slowly, close when done)    ║
+║    4. Export → "Export Cloud" & "View in 3D"                             ║
+║    5. Post-process → Choose isolation strategy & "Apply Isolation"       ║
+║                                                                            ║
+║  FEATURES:                                                               ║
+║    ✓ Real-time telemetry (nodes, DB size, status)                       ║
+║    ✓ Background threading (responsive UI)                               ║
+║    ✓ 5 point cloud isolation strategies                                 ║
+║    ✓ Multi-camera support (markerless auto-calibration)                 ║
+║    ✓ Live command logging                                               ║
+║    ✓ Docker-native (no host ROS needed on Kali)                         ║
+║                                                                            ║
+║  DOCUMENTATION:                                                          ║
+║    • README_GUI.md          → This quick summary                         ║
+║    • SCANNER_GUI_GUIDE.md   → Full user guide with workflows             ║
+║    • GUI_UPDATES.md         → Architecture & features                    ║
+║    • CLAUDE.md              → Project guide (updated)                    ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝

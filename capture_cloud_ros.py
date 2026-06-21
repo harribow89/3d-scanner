@@ -16,7 +16,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, CameraInfo
 
-DEPTH_TOPIC = "/camera/depth_registered/image_raw"  # 16UC1, millimetres
+DEPTH_TOPIC = "/camera/depth_registered/image_raw"  # 16UC1 (mm) or 32FC1 (m)
 RGB_TOPIC = "/camera/rgb/image_raw"                  # rgb8
 INFO_TOPIC = "/camera/rgb/camera_info"
 
@@ -63,8 +63,17 @@ class GrabOne(Node):
         if self.done or self.K is None:
             return
         fx, fy, cx, cy = self.K
-        depth = np.frombuffer(msg.data, np.uint16).reshape(msg.height, msg.width).astype(np.float32)
-        z = depth / 1000.0  # mm -> m
+        # Registered depth can arrive as 16UC1 (millimetres) or 32FC1 (metres)
+        # depending on whether depth_image_proc emits raw or float-registered.
+        if msg.encoding == "32FC1":
+            z = np.frombuffer(msg.data, np.float32).reshape(msg.height, msg.width).copy()
+        elif msg.encoding in ("16UC1", "mono16"):
+            depth = np.frombuffer(msg.data, np.uint16).reshape(msg.height, msg.width).astype(np.float32)
+            z = depth / 1000.0  # mm -> m
+        else:
+            self.get_logger().warn(f"unexpected depth encoding {msg.encoding!r}; skipping")
+            return
+        z[~np.isfinite(z)] = 0.0  # NaN/inf (no return) -> drop
         vs, us = np.where(z > 0)
         if us.size == 0:
             self.get_logger().warn("depth frame all-zero; waiting…")
@@ -73,7 +82,7 @@ class GrabOne(Node):
         xx = (us - cx) * zz / fx
         yy = (vs - cy) * zz / fy
         xyz = np.stack([xx, yy, zz], axis=1)
-        if self.rgb is not None and self.rgb.shape[:2] == depth.shape:
+        if self.rgb is not None and self.rgb.shape[:2] == z.shape:
             rgb = self.rgb[vs, us]
         else:
             rgb = np.full((us.size, 3), 200, np.uint8)
@@ -81,7 +90,7 @@ class GrabOne(Node):
         self.get_logger().info(
             f"SAVED {us.size} points -> {self.out_path} | "
             f"depth {zz.min():.3f}..{zz.max():.3f} m, median {np.median(zz):.3f} m | "
-            f"fill {100*us.size/(depth.size):.1f}%"
+            f"fill {100*us.size/(z.size):.1f}%"
         )
         self.done = True
 

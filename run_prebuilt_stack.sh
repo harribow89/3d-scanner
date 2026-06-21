@@ -6,6 +6,21 @@ ROOT_DIR="/home/jim/Desktop/scanner"
 PID_FILE="/tmp/scanner_ros_stack.pids"
 LOG_DIR="${ROOT_DIR}/ros_logs"
 DEFAULT_DB_PATH="${ROOT_DIR}/rtabmap.db"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+print_ros_missing_help() {
+  echo "ROS2 Jazzy is not installed on this host."
+  echo "Expected: /opt/ros/jazzy/setup.bash"
+  echo ""
+  if command -v docker >/dev/null 2>&1; then
+    echo "Docker fallback is available:"
+    echo "  ${SCRIPT_DIR}/run_scanner_docker.sh build"
+    echo "  ${SCRIPT_DIR}/run_scanner_docker.sh camera"
+  else
+    echo "Docker is also not available on this host."
+    echo "Install either ROS2 Jazzy or Docker before running ROS stack modes."
+  fi
+}
 
 print_help() {
   cat <<'EOF'
@@ -27,13 +42,11 @@ Usage:
   ./run_prebuilt_stack.sh ros_export_cloud [db_path] [output_ply]
 
 Most people should use one of these:
-  1. ./run_stack_control_app.sh
-     Opens the simple launcher GUI for the scanner tools.
-  2. ./run_prebuilt_stack.sh ros_all
+  1. ./run_prebuilt_stack.sh ros_all
      Starts the RTAB-Map mapping stack.
-  3. ./run_prebuilt_stack.sh ros_stop
+  2. ./run_prebuilt_stack.sh ros_stop
      Stops the RTAB-Map mapping stack.
-  4. ./run_prebuilt_stack.sh ros_export_cloud
+  3. ./run_prebuilt_stack.sh ros_export_cloud
      Exports the current RTAB-Map database to a .ply cloud.
 
 Modes:
@@ -83,7 +96,7 @@ source_ros() {
     source /opt/ros/jazzy/setup.bash
     set -u
   else
-    echo "ROS2 Jazzy not installed yet: /opt/ros/jazzy/setup.bash missing"
+    print_ros_missing_help
     exit 1
   fi
 }

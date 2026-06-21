@@ -13,6 +13,11 @@
 #   ./run_scanner_docker.sh snap [out.ply]   # capture ONE point-cloud frame to PLY
 #   ./run_scanner_docker.sh shell        # interactive ROS shell in the container
 #   ./run_scanner_docker.sh map          # camera + RTAB-Map SLAM (move camera slowly)
+#   ./run_scanner_docker.sh viz          # live view: camera + RTAB-Map + RViz on $DISPLAY
+#   ./run_scanner_docker.sh gui          # full RTAB-Map SLAM GUI (global map + export)
+#   ./run_scanner_docker.sh multi        # ALL Xtions in cameras.json + RViz (calibrated)
+#   ./run_scanner_docker.sh station capture|build|list   # station/sweep scan (Matterport-style)
+#   ./run_scanner_docker.sh calibrate [--offline [dir]]  # solve multi-cam extrinsics (sequential+chained)
 #   ./run_scanner_docker.sh export [db] [out.ply]   # rtabmap-export a cloud
 set -euo pipefail
 
@@ -68,12 +73,123 @@ case "$cmd" in
         approx_sync:=true frame_id:=camera_link \
         database_path:=/scanner/rtabmap.db'
     ;;
+  gui)
+    # Hands-off RTAB-Map SLAM GUI: camera + RTAB-Map node + rtabmap_viz. The ROS
+    # rtabmap node maps AUTOMATICALLY as frames arrive (no "press Start") — the
+    # window opens already building a global 3D map. Walk around slowly; loop
+    # closures correct drift. Save via File -> Export 3D clouds (to /scanner/output).
+    # Fresh map each run (--delete_db_on_start); map persists at /scanner/rtabmap.db.
+    # Close the window to finish.
+    command -v xhost >/dev/null 2>&1 && xhost +local:root >/dev/null 2>&1 || true
+    GL=(); [ -e /dev/dri ] && GL=(--device /dev/dri:/dev/dri)
+    $DOCKER run "${COMMON[@]}" "${GL[@]}" -e HOME=/scanner -w /scanner "$IMAGE" bash -lc '
+      source /opt/ros/jazzy/setup.bash
+      ros2 launch openni2_camera camera_with_cloud.launch.py > /tmp/cam.log 2>&1 & sleep 12
+      ros2 launch rtabmap_launch rtabmap.launch.py \
+        rgb_topic:=/camera/rgb/image_raw \
+        depth_topic:=/camera/depth_registered/image_raw \
+        camera_info_topic:=/camera/rgb/camera_info \
+        approx_sync:=true frame_id:=camera_link \
+        database_path:=/scanner/rtabmap.db rtabmap_args:=--delete_db_on_start \
+        rtabmap_viz:=true rviz:=false > /tmp/rtabmap.log 2>&1 & LP=$!
+      echo ">> RTAB-Map UI starting — it begins mapping automatically. Close the window to finish."
+      sleep 10
+      while ! pgrep -f rtabmap_viz >/dev/null; do sleep 1; done   # wait for GUI
+      while pgrep -f rtabmap_viz >/dev/null; do sleep 2; done     # until window closed
+      kill $LP 2>/dev/null; sleep 1'
+    sudo chown -R "$(id -u):$(id -g)" "$HERE/.ros" "$HERE/output" "$HERE/rtabmap.db" 2>/dev/null || true
+    ;;
+  multi)
+    # Live view of ALL Xtions in cameras.json (multi_camera.launch.py) + RViz,
+    # using the markerless-calibrated extrinsics (output/camera_extrinsics.json).
+    # Edit cameras.json to add/remove cameras; run calibrate_multi.py to align.
+    #
+    # Fitting 3 Xtions on ONE USB-2 controller: validated 3/3 concurrent streams
+    # with this combination (anything heavier drops the 3rd with "Failed to set
+    # USB interface!"):
+    #   - DEPTH-ONLY   (no colour isochronous endpoint to reserve)
+    #   - QQVGA_30Hz   (160x120; QVGA only fits 2 cameras on one bus)
+    #   - STAGGERED open (cam1@0s, cam2@6s, cam3@12s) so the drivers don't all
+    #     race to reserve their USB interface at once
+    # These are the defaults below. Overrides:
+    #   MULTI_DEPTH_ONLY=0     -> colour clouds (only with <=2 cams on one bus)
+    #   MULTI_DMODE=QVGA_30Hz  -> higher-res depth (only with <=2 cams on one bus)
+    #   MULTI_STAGGER=0        -> open all cameras at once (1-2 cam rigs)
+    command -v xhost >/dev/null 2>&1 && xhost +local:root >/dev/null 2>&1 || true
+    GL=(); [ -e /dev/dri ] && GL=(--device /dev/dri:/dev/dri)
+    DO="${MULTI_DEPTH_ONLY:-1}"
+    DM="${MULTI_DMODE:-QQVGA_30Hz}"
+    ST="${MULTI_STAGGER:-6}"
+    ENVS=(-e PREVIEW_DEPTH_ONLY="$DO" -e PREVIEW_DMODE="$DM" -e PREVIEW_STAGGER="$ST")
+    # Wait long enough for the last staggered camera (n*stagger) to come up before RViz.
+    NCAM=$(grep -c '"ns"' "$HERE/cameras.json" 2>/dev/null || echo 3)
+    WARM=$(( NCAM * ST + 8 ))
+    $DOCKER run "${COMMON[@]}" "${GL[@]}" "${ENVS[@]}" "$IMAGE" bash -lc "
+      source /opt/ros/jazzy/setup.bash
+      ros2 launch /scanner/multi_camera.launch.py > /tmp/multi.log 2>&1 & sleep $WARM
+      echo '>> camera cloud topics:'; ros2 topic list | grep -E 'camera[0-9]+/depth_registered/points' || true
+      echo '>> launching RViz (close the window to end)…'
+      rviz2 -d /scanner/scanner_multi.rviz"
+    ;;
+  station)
+    # Matterport-style station/sweep scanning (Stage 1, see MATTERPORT_REPLICATION_PLAN.md).
+    # Runs host-side (.venv + Open3D); station_scan.py spins up the camera container
+    # itself per sweep. Subcommands: capture | build | list | clear.
+    #   ./run_scanner_docker.sh station capture     # at each tripod position
+    #   ./run_scanner_docker.sh station build        # stitch all sweeps -> output/room.ply
+    PY="$HERE/.venv/bin/python"; [ -x "$PY" ] || PY="python3"
+    shift || true
+    "$PY" "$HERE/station_scan.py" "${@:-capture}"
+    ;;
+  calibrate)
+    # Solve multi-camera extrinsics (output/camera_extrinsics.json). Runs host-side
+    # (.venv + Open3D); calibrate_multi.py captures one cloud per camera SEQUENTIALLY
+    # (bandwidth-safe) and chains adjacent-pair registration (cam2->cam1, cam3->cam2).
+    # Aim adjacent cameras at a SHARED structured scene ~1-1.5 m away first.
+    #   ./run_scanner_docker.sh calibrate              # live: sequential capture + solve
+    #   ./run_scanner_docker.sh calibrate --offline    # solve from saved sweep clouds
+    # Eyeball the result:  .venv/bin/python fuse_check.py && python3 view_cloud.py output/alignment_check.ply
+    PY="$HERE/.venv/bin/python"; [ -x "$PY" ] || PY="python3"
+    shift || true
+    "$PY" "$HERE/calibrate_multi.py" "$@"
+    ;;
+  viz)
+    # Live view: camera + RTAB-Map + RViz showing /camera/depth_registered/points.
+    # Move the camera slowly; the live cloud renders on your $DISPLAY.
+    command -v xhost >/dev/null 2>&1 && xhost +local:root >/dev/null 2>&1 || true
+    GL=(); [ -e /dev/dri ] && GL=(--device /dev/dri:/dev/dri)
+    $DOCKER run "${COMMON[@]}" "${GL[@]}" \
+      -e LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-0}" \
+      "$IMAGE" bash -lc '
+      source /opt/ros/jazzy/setup.bash
+      ros2 launch openni2_camera camera_with_cloud.launch.py > /tmp/cam.log 2>&1 & sleep 12
+      ros2 launch rtabmap_launch rtabmap.launch.py \
+        rgb_topic:=/camera/rgb/image_raw \
+        depth_topic:=/camera/depth_registered/image_raw \
+        camera_info_topic:=/camera/rgb/camera_info \
+        approx_sync:=true frame_id:=camera_link \
+        database_path:=/scanner/rtabmap.db rviz:=false > /tmp/rtabmap.log 2>&1 & sleep 4
+      echo ">> launching RViz (close the window to end the scan)…"
+      rviz2 -d /scanner/scanner_cloud.rviz'
+    # rtabmap.db is written by root in the container; hand it back to the host user
+    sudo chown "$(id -u):$(id -g)" "$HERE/rtabmap.db" 2>/dev/null || true
+    ;;
   export)
+    # NOTE: rtabmap-export takes a base NAME (+ --output_dir) and writes
+    # <dir>/<name>_cloud.ply — passing an absolute path to --output makes it
+    # concatenate onto output_dir. So split dir/name explicitly here.
     db="${2:-/scanner/rtabmap.db}"; out="${3:-/scanner/output/scan.ply}"
+    out_dir="$(dirname "$out")"; out_name="$(basename "$out" .ply)"
+    # Room-scan tuning: keep far walls (default range is only 4 m) and
+    # voxel-downsample to a 2 cm grid so a whole-room cloud stays manageable.
+    # Override per-run: ./run_scanner_docker.sh export <db> <out> <max_range_m> <voxel_m>
+    max_range="${4:-6.0}"; voxel="${5:-0.02}"
     $DOCKER run "${COMMON[@]}" "$IMAGE" bash -lc "
       source /opt/ros/jazzy/setup.bash
-      mkdir -p \$(dirname '$out')
-      rtabmap-export --cloud --output '$out' '$db'"
+      mkdir -p '$out_dir'
+      rtabmap-export --cloud --max_range '$max_range' --voxel '$voxel' --output '$out_name' --output_dir '$out_dir' '$db'"
+    sudo chown -R "$(id -u):$(id -g)" "$HERE/output" 2>/dev/null || true
+    echo "Exported: ${out_dir}/${out_name}_cloud.ply"
     ;;
   *)
     echo "Unknown command: $cmd"; sed -n '2,20p' "$0"; exit 1 ;;

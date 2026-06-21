@@ -1,6 +1,13 @@
 __pycache__/
 venv/
+.venv/
 *.pyc
+
+# host-side runtime/env dirs (created by Docker runs and the venv)
+.ros/
+.config/
+.rtabmap/
+.rtabmap
 
 # scan outputs
 *.oni

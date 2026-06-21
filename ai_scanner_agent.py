@@ -30,9 +30,29 @@ The agent also emits a free-text "thinking" stream that the UI displays.
 """
 
 import os
+import shutil
+import subprocess
 import threading
 import time
 from typing import Callable, Optional
+
+
+def _find_claude_cli() -> Optional[str]:
+    """Locate the Claude Code CLI binary, if installed.
+
+    Lets the agent run through the user's existing Claude Code auth
+    (`claude -p`) instead of a raw ANTHROPIC_API_KEY.
+    """
+    found = shutil.which("claude")
+    if found:
+        return found
+    for cand in (
+        os.path.expanduser("~/.local/bin/claude"),
+        "/usr/local/bin/claude",
+    ):
+        if os.path.exists(cand):
+            return cand
+    return None
 
 _ANTHROPIC_IMPORT_ERROR = None
 try:
@@ -47,6 +67,10 @@ try:
 except ImportError as _e:
     OpenAI = None  # type: ignore
     _OPENAI_IMPORT_ERROR = str(_e)
+
+# Model alias passed to `claude -p --model <alias>` for the CLI provider.
+# haiku keeps per-tick latency/cost low for a ~4 s agent loop.
+CLAUDE_CLI_MODEL = os.environ.get("SCANNER_CLAUDE_CLI_MODEL", "haiku")
 
 
 # ── Skill prompt — the agent's working knowledge of the scanner stack ──────────
@@ -194,14 +218,27 @@ class AIAgentController:
             or os.environ.get("ANTHROPIC_API_KEY", "")
             or os.environ.get("OPENAI_API_KEY", "")
         )
-        if not resolved_key:
-            raise ValueError(
-                "No API key. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, "
-                "or pass api_key= to AIAgentController."
-            )
 
         self.provider = self._resolve_provider(provider, resolved_key, model)
-        if self.provider == "anthropic":
+
+        # No API key needed when routing through the local Claude Code CLI.
+        if self.provider == "claude_cli":
+            self._claude_bin = _find_claude_cli()
+            if not self._claude_bin:
+                raise RuntimeError(
+                    "provider 'claude_cli' requested but the 'claude' CLI was not "
+                    "found on PATH (looked for ~/.local/bin/claude). Install Claude "
+                    "Code or set ANTHROPIC_API_KEY / OPENAI_API_KEY instead."
+                )
+            # Map the configured model to a CLI alias (claude -p --model <alias>).
+            self._cli_model = CLAUDE_CLI_MODEL
+            self._client = None
+        elif not resolved_key:
+            raise ValueError(
+                "No API key. Set ANTHROPIC_API_KEY or OPENAI_API_KEY, install the "
+                "Claude Code CLI (provider='claude_cli'), or pass api_key=."
+            )
+        elif self.provider == "anthropic":
             if anthropic is None:
                 raise ImportError(
                     f"anthropic package not installed: {_ANTHROPIC_IMPORT_ERROR}"
@@ -232,8 +269,12 @@ class AIAgentController:
 
     def _resolve_provider(self, provider: str, key: str, model: str) -> str:
         p = (provider or "auto").strip().lower()
-        if p in ("anthropic", "openai"):
+        if p in ("anthropic", "openai", "claude_cli"):
             return p
+        # Auto: prefer a real API key; otherwise fall back to the local
+        # Claude Code CLI so the agent works with no key configured.
+        if not key and _find_claude_cli():
+            return "claude_cli"
         if model.startswith("gpt-"):
             return "openai"
         if model.startswith("claude"):
@@ -243,6 +284,44 @@ class AIAgentController:
         if key.startswith("sk-"):
             return "openai"
         return "anthropic"
+
+    def _run_claude_cli(self) -> str:
+        """Run one completion via `claude -p` (Claude Code CLI).
+
+        The CLI uses the user's existing Claude Code auth, so no API key is
+        required. The skill prompt is supplied via --append-system-prompt and
+        the running conversation is piped in on stdin. Returns the model's
+        text (not streamed — the CLI yields the full answer at once).
+        """
+        convo = []
+        for turn in self._history:
+            tag = "SCANNER" if turn["role"] == "user" else "YOU"
+            convo.append(f"=== {tag} ===\n{turn['content']}")
+        prompt = "\n\n".join(convo)
+
+        cmd = [
+            self._claude_bin,
+            "-p",
+            "--model", self._cli_model,
+            "--append-system-prompt", SCANNER_SKILL,
+        ]
+        try:
+            proc = subprocess.run(
+                cmd,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+        except subprocess.TimeoutExpired:
+            self.on_error("claude CLI timed out (90s); issuing WAIT")
+            return "WAIT"
+        if proc.returncode != 0:
+            self.on_error(
+                f"claude CLI exited {proc.returncode}: {proc.stderr.strip()[:200]}"
+            )
+            return "WAIT"
+        return proc.stdout.strip()
 
     # ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -327,6 +406,10 @@ class AIAgentController:
                 for chunk in stream.text_stream:
                     full_response += chunk
                     self.on_thinking(chunk)
+        elif self.provider == "claude_cli":
+            # Route through the local Claude Code CLI (no API key needed).
+            full_response = self._run_claude_cli()
+            self.on_thinking(full_response)
         else:
             msgs = [{"role": "system", "content": SCANNER_SKILL}] + self._history
             stream = self._client.chat.completions.create(

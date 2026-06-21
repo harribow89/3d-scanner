@@ -1,0 +1,81 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Color: 160; 160; 164
+      Line Style:
+        Value: Lines
+      Plane Cell Count: 20
+      Cell Size: 0.1
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Camera1
+      Enabled: true
+      Topic:
+        Value: /camera1/depth_registered/points
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 255; 80; 80
+      Decay Time: 0
+      Position Transformer: XYZ
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Camera2
+      Enabled: true
+      Topic:
+        Value: /camera2/depth_registered/points
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 80; 255; 80
+      Decay Time: 0
+      Position Transformer: XYZ
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Camera3
+      Enabled: true
+      Topic:
+        Value: /camera3/depth_registered/points
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 80; 120; 255
+      Decay Time: 0
+      Position Transformer: XYZ
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Names: true
+      Marker Scale: 0.3
+  Global Options:
+    Fixed Frame: camera1_link
+    Background Color: 30; 30; 40
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 2.5
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.8
+      Pitch: 0.3
+      Yaw: 3.14
+      Target Frame: camera1_link
+Window Geometry:
+  Width: 1280
+  Height: 800

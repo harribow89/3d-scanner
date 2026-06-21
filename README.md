@@ -7,6 +7,8 @@ An AI-assisted point cloud scanning application built on **RTAB-Map + OpenNI2** 
 - **Live telemetry GUI** — depth quality, motion tracking, vertex count, and frame count, updated in real time.
 - **AI scanning agent** — reads scanner state each tick, reasons about it with embedded scanner knowledge, streams guidance to the UI, and dispatches control commands.
 - **Point cloud isolation** — five post-processing strategies plus a side-by-side `all_variants` mode (Open3D voxel downsampling, plane removal, outlier filtering, cluster extraction).
+- **STL mesh export** — reconstructs a triangle mesh from the cleaned object cloud for printing or CAD workflows.
+- **One-click export to STL** — exports the cloud, isolates the object, and writes STL from the GUI in one step.
 - **Multiple scan modes** — handheld, turntable, and surface.
 
 ## Requirements
@@ -17,6 +19,13 @@ An AI-assisted point cloud scanning application built on **RTAB-Map + OpenNI2** 
 - An API key in the environment: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`
 
 ## Quick Start
+
+Bootstrap the local Python environment first:
+
+```bash
+./setup.sh
+source ../venv/bin/activate
+```
 
 Launch the main GUI (auto-starts the ROS stack on the first scan):
 
@@ -37,6 +46,12 @@ Export and view a point cloud:
 ```bash
 ./run_prebuilt_stack.sh ros_export_cloud rtabmap.db output/scan.ply
 python3 view_cloud.py output/scan.ply
+```
+
+Generate an STL from the cleaned object cloud:
+
+```bash
+./.venv/bin/python point_cloud_tools.py output/scan_cloud.ply --strategy tabletop_object --mesh-output output/scan.stl
 ```
 
 Run an automated AI-guided scan (N seconds, then export):
