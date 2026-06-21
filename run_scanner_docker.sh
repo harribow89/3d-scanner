@@ -81,7 +81,15 @@ case "$cmd" in
     # Fresh map each run (--delete_db_on_start); map persists at /scanner/rtabmap.db.
     # Close the window to finish.
     command -v xhost >/dev/null 2>&1 && xhost +local:root >/dev/null 2>&1 || true
-    GL=(); [ -e /dev/dri ] && GL=(--device /dev/dri:/dev/dri)
+    # Prefer the NVIDIA GPU (needs nvidia-container-toolkit); else fall back to a
+    # DRI render node (Intel/AMD). Without either, GL is software (llvmpipe) and
+    # rtabmap_viz/RViz are laggy.
+    GL=()
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+      GL=(--gpus all -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all)
+    elif [ -e /dev/dri ]; then
+      GL=(--device /dev/dri:/dev/dri)
+    fi
     $DOCKER run "${COMMON[@]}" "${GL[@]}" -e HOME=/scanner -w /scanner "$IMAGE" bash -lc '
       source /opt/ros/jazzy/setup.bash
       ros2 launch openni2_camera camera_with_cloud.launch.py > /tmp/cam.log 2>&1 & sleep 12
@@ -116,7 +124,15 @@ case "$cmd" in
     #   MULTI_DMODE=QVGA_30Hz  -> higher-res depth (only with <=2 cams on one bus)
     #   MULTI_STAGGER=0        -> open all cameras at once (1-2 cam rigs)
     command -v xhost >/dev/null 2>&1 && xhost +local:root >/dev/null 2>&1 || true
-    GL=(); [ -e /dev/dri ] && GL=(--device /dev/dri:/dev/dri)
+    # Prefer the NVIDIA GPU (needs nvidia-container-toolkit); else fall back to a
+    # DRI render node (Intel/AMD). Without either, GL is software (llvmpipe) and
+    # rtabmap_viz/RViz are laggy.
+    GL=()
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+      GL=(--gpus all -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all)
+    elif [ -e /dev/dri ]; then
+      GL=(--device /dev/dri:/dev/dri)
+    fi
     DO="${MULTI_DEPTH_ONLY:-1}"
     DM="${MULTI_DMODE:-QQVGA_30Hz}"
     ST="${MULTI_STAGGER:-6}"
@@ -157,7 +173,15 @@ case "$cmd" in
     # Live view: camera + RTAB-Map + RViz showing /camera/depth_registered/points.
     # Move the camera slowly; the live cloud renders on your $DISPLAY.
     command -v xhost >/dev/null 2>&1 && xhost +local:root >/dev/null 2>&1 || true
-    GL=(); [ -e /dev/dri ] && GL=(--device /dev/dri:/dev/dri)
+    # Prefer the NVIDIA GPU (needs nvidia-container-toolkit); else fall back to a
+    # DRI render node (Intel/AMD). Without either, GL is software (llvmpipe) and
+    # rtabmap_viz/RViz are laggy.
+    GL=()
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+      GL=(--gpus all -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all)
+    elif [ -e /dev/dri ]; then
+      GL=(--device /dev/dri:/dev/dri)
+    fi
     $DOCKER run "${COMMON[@]}" "${GL[@]}" \
       -e LIBGL_ALWAYS_SOFTWARE="${LIBGL_ALWAYS_SOFTWARE:-0}" \
       "$IMAGE" bash -lc '
