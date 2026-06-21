@@ -460,6 +460,27 @@ class ScannerGUI(QMainWindow):
         multi_layout.addWidget(self.multi_view_btn)
         layout.addWidget(multi_group)
 
+        # 3-camera SLAM (experimental)
+        slam_group = QGroupBox("3-Camera SLAM (experimental)")
+        slam_layout = QVBoxLayout(slam_group)
+        slam_desc = QLabel(
+            "Live RTAB-Map SLAM fusing all 3 Xtions for a wide field of view. "
+            "REQUIRES good calibration first — calibrate (above) until overlap is "
+            "GOOD, or odometry won't lock. Move the rig slowly; close the window "
+            "to finish. Needs all 3 RGB-D streams (marginal on one USB-2 bus)."
+        )
+        slam_desc.setWordWrap(True)
+        slam_layout.addWidget(slam_desc)
+        self.multi_slam_btn = QPushButton("Launch 3-Cam SLAM")
+        self.multi_slam_btn.setToolTip(
+            "Runs cameras -> rgbd_sync -> rgbd_odometry -> rtabmap on all 3 "
+            "cameras. Only produces a good map once camera_extrinsics.json is "
+            "calibrated (see the Calibration section)."
+        )
+        self.multi_slam_btn.clicked.connect(self._on_multi_slam)
+        slam_layout.addWidget(self.multi_slam_btn)
+        layout.addWidget(slam_group)
+
         # Calibration
         calib_group = QGroupBox("Calibration")
         calib_layout = QVBoxLayout(calib_group)
@@ -785,6 +806,11 @@ class ScannerGUI(QMainWindow):
     def _on_multi_view(self):
         cmd = f"cd {HERE} && ./run_scanner_docker.sh multi"
         self._run_command(cmd, "Multi-Camera RViz (check your display window)")
+
+    def _on_multi_slam(self):
+        self._cleanup_before_scan()
+        cmd = f"cd {HERE} && ./run_scanner_docker.sh multi_slam"
+        self._run_command(cmd, "3-Cam SLAM (needs calibration; close the viz window to finish)")
 
     def _on_overlap_check(self):
         self._cleanup_before_scan()
