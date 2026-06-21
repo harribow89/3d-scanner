@@ -464,12 +464,21 @@ class ScannerGUI(QMainWindow):
         calib_group = QGroupBox("Calibration")
         calib_layout = QVBoxLayout(calib_group)
         calib_desc = QLabel(
-            "Runs markerless extrinsic calibration (FPFH + RANSAC + ICP).\n"
-            "Aim all cameras at a structured scene with overlap.\n"
-            "Updates output/camera_extrinsics.json."
+            "Aim all cameras at a STRUCTURED scene ~1-1.5 m away so adjacent "
+            "cameras overlap ~30-50%. Step 1 checks overlap; only calibrate "
+            "(step 2) once every pair reads GOOD. See CALIBRATION_GUIDE.md."
         )
+        calib_desc.setWordWrap(True)
         calib_layout.addWidget(calib_desc)
-        self.calib_btn = QPushButton("Run Auto-Calibration")
+        self.overlap_btn = QPushButton("1. Check Camera Overlap")
+        self.overlap_btn.setToolTip(
+            "Capture each camera and report how much adjacent cameras share a "
+            "view. Re-aim until every pair is GOOD before calibrating — low "
+            "overlap is the #1 cause of misaligned multi-camera fusion."
+        )
+        self.overlap_btn.clicked.connect(self._on_overlap_check)
+        calib_layout.addWidget(self.overlap_btn)
+        self.calib_btn = QPushButton("2. Run Auto-Calibration")
         self.calib_btn.clicked.connect(self._on_calibrate)
         calib_layout.addWidget(self.calib_btn)
         layout.addWidget(calib_group)
@@ -777,7 +786,13 @@ class ScannerGUI(QMainWindow):
         cmd = f"cd {HERE} && ./run_scanner_docker.sh multi"
         self._run_command(cmd, "Multi-Camera RViz (check your display window)")
 
+    def _on_overlap_check(self):
+        self._cleanup_before_scan()
+        cmd = f"cd {HERE} && ./.venv/bin/python overlap_check.py"
+        self._run_command(cmd, "Checking camera overlap (aim for GOOD on every pair)")
+
     def _on_calibrate(self):
+        self._cleanup_before_scan()
         cmd = f"cd {HERE} && ./.venv/bin/python calibrate_multi.py"
         self._run_command(cmd, "Running Markerless Calibration")
 
