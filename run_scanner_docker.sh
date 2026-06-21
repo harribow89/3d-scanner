@@ -158,6 +158,93 @@ case "$cmd" in
       echo '>> launching RViz (close the window to end)…'
       rviz2 -d /scanner/scanner_multi.rviz"
     ;;
+  multi_slam)
+    # EXPERIMENTAL: live RTAB-Map SLAM fusing ALL 3 Xtions (RGB-D) at once, for a
+    # much wider field of view than single-camera SLAM.
+    #
+    # Bandwidth: TESTED OK — 3x RGB-D @ QVGA_30Hz hold ~29 Hz on this one USB-2
+    # bus (staggered open), so 3-cam SLAM is feasible here (the old "depth-only
+    # QQVGA" limit in the `multi` notes was too conservative).
+    #
+    # REQUIRES GOOD CALIBRATION: the 3 cameras are fused through the TF tree from
+    # output/camera_extrinsics.json. With the default zero-baseline guess the map
+    # will be misaligned/unusable. Aim the cameras for overlap (overlap_check.py
+    # -> GOOD), run './run_scanner_docker.sh calibrate', THEN this.
+    #
+    # Close the rtabmap_viz window to finish. Fresh map each run.
+    command -v xhost >/dev/null 2>&1 && xhost +local:root >/dev/null 2>&1 || true
+    GL=()
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+      GL=(--gpus all -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=all)
+    elif [ -e /dev/dri ]; then
+      GL=(--device /dev/dri:/dev/dri)
+    fi
+    ST="${MULTI_STAGGER:-6}"
+    NCAM=$(grep -c '"ns"' "$HERE/cameras.json" 2>/dev/null || echo 3)
+    WARM=$(( NCAM * ST + 14 ))
+    NOVIZ="${MULTI_SLAM_NOVIZ:-0}"   # 1 = headless (no rtabmap_viz), for testing
+    $DOCKER run "${COMMON[@]}" "${GL[@]}" -e HOME=/scanner -w /scanner "$IMAGE" bash -lc "
+      source /opt/ros/jazzy/setup.bash
+      echo '>> bringing up 3 Xtions in RGB-D (QVGA), staggered…'
+      PREVIEW_DEPTH_ONLY=0 PREVIEW_DMODE=QVGA_30Hz PREVIEW_STAGGER=$ST PREVIEW_DEVICE_TIME=0 \
+        ros2 launch /scanner/multi_camera.launch.py > /tmp/multi.log 2>&1 &
+      sleep $(( NCAM * ST ))
+      echo '>> waiting for all $NCAM RGB-D streams to come up…'
+      up=0
+      for t in \$(seq 1 15); do
+        up=\$(ros2 topic list 2>/dev/null | grep -cE 'camera[0-9]+/depth_registered/image_raw')
+        echo \"   RGB-D streams up: \$up/$NCAM (check \$t)\"
+        [ \"\$up\" -ge $NCAM ] && break
+        sleep 4
+      done
+      [ \"\$up\" -ge $NCAM ] || echo 'WARN: only '\$up'/$NCAM RGB-D streams up — 3 on one USB-2 bus is marginal; the map may use fewer cameras (see /tmp/multi.log).'
+      echo '>> starting per-camera rgbd_sync…'
+      for c in camera1 camera2 camera3; do
+        ros2 run rtabmap_sync rgbd_sync --ros-args -r __ns:=/\$c \
+          -r rgb/image:=/\$c/rgb/image_raw \
+          -r depth/image:=/\$c/depth_registered/image_raw \
+          -r rgb/camera_info:=/\$c/rgb/camera_info \
+          -p approx_sync:=true > /tmp/sync_\$c.log 2>&1 &
+      done
+      sleep 6
+      echo '>> starting rgbd_odometry (3-camera) — the odom source rtabmap needs…'
+      ros2 run rtabmap_odom rgbd_odometry --ros-args \
+        -p subscribe_rgbd:=true -p rgbd_cameras:=3 -p approx_sync:=true \
+        -p frame_id:=camera1_link -p wait_for_transform:=0.3 \
+        -r rgbd_image0:=/camera1/rgbd_image \
+        -r rgbd_image1:=/camera2/rgbd_image \
+        -r rgbd_image2:=/camera3/rgbd_image > /tmp/odom.log 2>&1 &
+      sleep 6
+      echo '>> starting rtabmap (3-camera fusion, anchored at camera1_link)…'
+      # NOTE: RTAB-Map core params (Rtabmap/*, Vis/*) are string-typed — passing
+      # them as -p name:=1.5 throws InvalidParameterTypeException. Tune via a
+      # params file if needed; defaults are fine here.
+      ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
+        -p subscribe_rgbd:=true -p rgbd_cameras:=3 -p approx_sync:=true \
+        -p frame_id:=camera1_link -p database_path:=/scanner/rtabmap.db \
+        -r rgbd_image0:=/camera1/rgbd_image \
+        -r rgbd_image1:=/camera2/rgbd_image \
+        -r rgbd_image2:=/camera3/rgbd_image > /tmp/rtabmap.log 2>&1 &
+      sleep 10
+      if [ '$NOVIZ' = '1' ]; then
+        sleep 6
+        echo '>> headless: rgbd_odometry status…'
+        grep -iE 'Odom:|odometry|Did not receive|lost' /tmp/odom.log | tail -5
+        echo '>> headless: rtabmap status…'
+        grep -iE 'Rtabmap.*processed|added to|Did not receive|Long-term' /tmp/rtabmap.log | tail -5
+        echo '--- node graph ---'; ros2 node list | grep -E 'rtabmap|rgbd_sync|rgbd_odometry' | head
+        sleep 2
+      else
+        echo '>> launching rtabmap_viz — close the window to finish.'
+        ros2 run rtabmap_viz rtabmap_viz --ros-args \
+          -p subscribe_rgbd:=true -p rgbd_cameras:=3 -p approx_sync:=true \
+          -p frame_id:=camera1_link \
+          -r rgbd_image0:=/camera1/rgbd_image \
+          -r rgbd_image1:=/camera2/rgbd_image \
+          -r rgbd_image2:=/camera3/rgbd_image
+      fi"
+    sudo chown -R "$(id -u):$(id -g)" "$HERE/rtabmap.db" "$HERE/.ros" 2>/dev/null || true
+    ;;
   station)
     # Matterport-style station/sweep scanning (Stage 1, see MATTERPORT_REPLICATION_PLAN.md).
     # Runs host-side (.venv + Open3D); station_scan.py spins up the camera container

@@ -27,6 +27,11 @@ HERE = os.path.dirname(__file__)
 ROSTER = os.path.join(HERE, "cameras.json")
 EXTR = os.path.join(HERE, "output", "camera_extrinsics.json")
 _OPT = ["-1.5707963267948966", "-1.5707963267948966"]  # roll, yaw (optical)
+# Stamp frames with the device clock by default (good for single-camera). For
+# MULTI-CAMERA SLAM set PREVIEW_DEVICE_TIME=0 so every camera stamps with the
+# shared ROS clock — otherwise rtabmap can't sync 3 independent device clocks
+# together ("Did not receive data").
+_USE_DEV_TIME = os.environ.get("PREVIEW_DEVICE_TIME", "1") == "1"
 
 
 def camera_graph(ns, device_id, depth_mode, color_mode, depth_only=False):
@@ -43,7 +48,7 @@ def camera_graph(ns, device_id, depth_mode, color_mode, depth_only=False):
                 parameters=[{"device_id": device_id},
                             {"depth_mode": depth_mode},
                             {"depth_registration": False},
-                            {"use_device_time": True},
+                            {"use_device_time": _USE_DEV_TIME},
                             {"depth_frame_id": ns + "_depth_optical_frame"},
                             {"ir_frame_id": ns + "_ir_optical_frame"}],
             ),
@@ -65,7 +70,7 @@ def camera_graph(ns, device_id, depth_mode, color_mode, depth_only=False):
                             {"depth_mode": depth_mode},
                             {"color_mode": color_mode},
                             {"depth_registration": True},
-                            {"use_device_time": True},
+                            {"use_device_time": _USE_DEV_TIME},
                             {"rgb_frame_id": ns + "_rgb_optical_frame"},
                             {"depth_frame_id": ns + "_depth_optical_frame"},
                             {"ir_frame_id": ns + "_ir_optical_frame"}],
