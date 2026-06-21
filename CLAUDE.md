@@ -19,25 +19,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - *Log* — command output and diagnostics
   - Real-time telemetry bar (status, nodes, DB size) refreshes every 2 seconds from RTAB-Map DB.
 
-- **ros_scanner_app.py** — Legacy Tkinter GUI (requires host ROS; deprecated on Kali). Kept for reference; users should prefer `scanner_gui.py`.
-
 - **ai_scanner_agent.py** — Background thread that reads scanner state every tick, sends it to Claude/GPT-4 with embedded skill knowledge about how the scanner works, streams the response to the UI, and parses/dispatches commands (CAPTURE, START_AUTO, BUILD_MESH, EXPORT_LIVE, ISOLATE_LATEST, SET_ISOLATION, etc.) back through a ScannerBridge.
 
 - **point_cloud_tools.py** — Post-processing pipeline offering five isolation strategies (raw_clean, largest_cluster, tabletop_object, center_focus, aggressive_hybrid) and an all_variants mode. Uses Open3D for voxel downsampling, plane removal, statistical/radius outlier filtering, and cluster extraction. Saves multiple variants for side-by-side comparison.
 
 - **view_cloud.py** — Lightweight PLY viewer. Downsamples large point clouds to ~1–2M points for smooth rendering and estimates surface normals.
 
-- **rgb_display_tools.py** (optional) — Enhanced visualization module with live RGB/depth stream display and camera calibration tools. Can be integrated into `ros_scanner_app.py` for real-time video feedback during scanning.
-
 - **station_scan.py** + **capture_station.py** — **Matterport-style station/sweep scanning** (Stage 1 of `MATTERPORT_REPLICATION_PLAN.md`, derived from reverse-engineering the Matterport app). Instead of continuous handheld SLAM, capture discrete 360°-ish "sweeps" from fixed tripod positions: each `capture` stacks N depth frames per camera (temporal denoise), fuses the multi-Xtion clouds into one sweep via `output/camera_extrinsics.json`, then `build` globally registers all sweeps (FPFH+RANSAC→ICP, same as `calibrate_multi.py`) with an Open3D pose-graph optimization → `output/room.ply`. Run via `./run_scanner_docker.sh station capture|build|list`. `station_scan.py` runs host-side in `.venv` and spins up the camera container itself per sweep.
 
 - **run_prebuilt_stack.sh** — Bash launcher for ROS/RTAB-Map modes (camera node, full stack, RViz, export utilities, auto-restart watchers).
 
-- **run_stack_control_app.sh** — Simple GUI launcher.
+- **run_scanner_docker.sh** — Primary entry point: builds/runs the `scanner-ros:jazzy` image and exposes all scan modes (camera, snap, map, gui, multi, station, calibrate, export).
 
 ### State & Config
 
-- **ros_scanner_settings.json** — Persistent user settings (isolation profile, depth window, quality preset, scan mode).
 - **calibration.json** — Camera calibration (if needed).
 - **rtabmap.db** — RTAB-Map pose graph and point cloud data (created at runtime).
 
