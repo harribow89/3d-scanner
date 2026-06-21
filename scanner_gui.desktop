@@ -3,14 +3,14 @@
 Categories=Graphics;Application
 Comment[en_AU]=ASUS Xtion ROS SLAM Scanner GUI
 Comment=ASUS Xtion ROS SLAM Scanner GUI
-Exec=/home/jim/Desktop/scanner/3d-scanner/launch_gui.sh
+Exec=/home/jim/Desktop/scanner/launch_gui.sh
 GenericName[en_AU]=
 GenericName=
 Icon=camera-photo
 MimeType=
 Name[en_AU]=3D Scanner Control Panel
 Name=3D Scanner Control Panel
-Path=/home/jim/Desktop/scanner/3d-scanner
+Path=/home/jim/Desktop/scanner
 StartupNotify=true
 Terminal=false
 TerminalOptions=

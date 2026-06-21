@@ -35,7 +35,7 @@ You now have a **modern PySide6 control panel** (`scanner_gui.py`) that provides
 ## 🚀 Quick Start
 
 ```bash
-cd /home/jim/Desktop/scanner/3d-scanner
+cd /home/jim/Desktop/scanner
 ./launch_gui.sh
 ```
 

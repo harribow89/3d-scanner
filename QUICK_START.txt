@@ -2,7 +2,7 @@
 ║                   ASUS Xtion 3D Scanner - Quick Start                      ║
 ║                                                                            ║
 ║  GUI LAUNCH:                                                              ║
-║    cd /home/jim/Desktop/scanner/3d-scanner                               ║
+║    cd /home/jim/Desktop/scanner                               ║
 ║    ./launch_gui.sh                                                       ║
 ║                                                                            ║
 ║  TABS OVERVIEW:                                                          ║

@@ -5,7 +5,7 @@
 ### Launch the GUI
 
 ```bash
-cd /home/jim/Desktop/scanner/3d-scanner
+cd /home/jim/Desktop/scanner
 ./launch_gui.sh
 ```
 

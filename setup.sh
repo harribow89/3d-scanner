@@ -16,6 +16,18 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
+# PySide6's "xcb" platform plugin (Qt 6.5+) needs libxcb-cursor0, or the GUI
+# fails with: "Could not load the Qt platform plugin xcb". Install if missing.
+if ! ldconfig -p 2>/dev/null | grep -q libxcb-cursor; then
+  echo "Installing GUI system dependency: libxcb-cursor0"
+  if command -v sudo >/dev/null 2>&1; then
+    sudo apt-get install -y libxcb-cursor0 \
+      || echo "WARNING: could not install libxcb-cursor0; the PySide6 GUI may not open."
+  else
+    echo "WARNING: libxcb-cursor0 missing and sudo unavailable; install it for the GUI."
+  fi
+fi
+
 if [[ ! -d "$VENV_DIR" ]]; then
   echo "Creating virtualenv at $VENV_DIR"
   python3 -m venv "$VENV_DIR"
