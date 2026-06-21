@@ -33,6 +33,17 @@ COMMON=(--rm --privileged --network host
         -e DISPLAY="${DISPLAY:-}"
         -v /tmp/.X11-unix:/tmp/.X11-unix)
 
+# RTAB-Map tuning for the ASUS Xtion (handheld). The Xtion has a narrow FOV and
+# noisy depth, so defaults drift/lose tracking ("captures all over the place"):
+#   Vis/MaxDepth 3.5        - ignore features past ~3.5 m (Xtion depth is junk beyond that)
+#   Vis/MinInliers 15       - keep tracking on lower-texture scenes (default 20)
+#   Odom/ResetCountdown 5   - auto-recover after losing odometry (default 0=never -> garbage poses)
+#   RGBD/Linear|AngularUpdate 0.05 - add keyframes on smaller motion (denser, fewer gaps)
+#   Rtabmap/DetectionRate 2 - update the map at 2 Hz instead of 1
+#   RGBD/NeighborLinkRefining true - refine consecutive links to reduce drift
+# Override at call time: RTAB_TUNE="..." ./run_scanner_docker.sh map
+RTAB_TUNE="${RTAB_TUNE:---Vis/MaxDepth 3.5 --Vis/MinInliers 15 --Odom/ResetCountdown 5 --RGBD/LinearUpdate 0.05 --RGBD/AngularUpdate 0.05 --Rtabmap/DetectionRate 2 --RGBD/NeighborLinkRefining true}"
+
 cmd="${1:-camera}"
 case "$cmd" in
   build)
@@ -63,7 +74,7 @@ case "$cmd" in
     $DOCKER run -it "${COMMON[@]}" "$IMAGE" bash
     ;;
   map)
-    $DOCKER run "${COMMON[@]}" "$IMAGE" bash -lc '
+    $DOCKER run "${COMMON[@]}" -e RTAB_TUNE="$RTAB_TUNE" "$IMAGE" bash -lc '
       source /opt/ros/jazzy/setup.bash
       ros2 launch openni2_camera camera_with_cloud.launch.py & sleep 12
       ros2 launch rtabmap_launch rtabmap.launch.py \
@@ -71,7 +82,7 @@ case "$cmd" in
         depth_topic:=/camera/depth_registered/image_raw \
         camera_info_topic:=/camera/rgb/camera_info \
         approx_sync:=true frame_id:=camera_link \
-        database_path:=/scanner/rtabmap.db'
+        database_path:=/scanner/rtabmap.db rtabmap_args:="$RTAB_TUNE"'
     ;;
   gui)
     # Hands-off RTAB-Map SLAM GUI: camera + RTAB-Map node + rtabmap_viz. The ROS
@@ -90,7 +101,7 @@ case "$cmd" in
     elif [ -e /dev/dri ]; then
       GL=(--device /dev/dri:/dev/dri)
     fi
-    $DOCKER run "${COMMON[@]}" "${GL[@]}" -e HOME=/scanner -w /scanner "$IMAGE" bash -lc '
+    $DOCKER run "${COMMON[@]}" "${GL[@]}" -e RTAB_TUNE="$RTAB_TUNE" -e HOME=/scanner -w /scanner "$IMAGE" bash -lc '
       source /opt/ros/jazzy/setup.bash
       ros2 launch openni2_camera camera_with_cloud.launch.py > /tmp/cam.log 2>&1 & sleep 12
       ros2 launch rtabmap_launch rtabmap.launch.py \
@@ -98,7 +109,7 @@ case "$cmd" in
         depth_topic:=/camera/depth_registered/image_raw \
         camera_info_topic:=/camera/rgb/camera_info \
         approx_sync:=true frame_id:=camera_link \
-        database_path:=/scanner/rtabmap.db rtabmap_args:=--delete_db_on_start \
+        database_path:=/scanner/rtabmap.db rtabmap_args:="--delete_db_on_start $RTAB_TUNE" \
         rtabmap_viz:=true rviz:=false > /tmp/rtabmap.log 2>&1 & LP=$!
       echo ">> RTAB-Map UI starting — it begins mapping automatically. Close the window to finish."
       sleep 10
