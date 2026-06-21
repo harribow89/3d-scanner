@@ -808,9 +808,24 @@ class ScannerGUI(QMainWindow):
         self._run_command(cmd, "Multi-Camera RViz (check your display window)")
 
     def _on_multi_slam(self):
+        reply = QMessageBox.question(
+            self, "3-Camera SLAM (experimental)",
+            "Brings up all 3 cameras and starts SLAM. Before you click Yes:\n\n"
+            "• It takes ~40 seconds before the window appears (the 3 cameras "
+            "open one at a time on the shared USB bus).\n"
+            "• It needs GOOD calibration first (use Check Overlap + Auto-"
+            "Calibration below until overlap is GOOD) or the map stays empty.\n"
+            "• Do NOT click repeatedly — wait for the window. Hit 'Stop / Cancel' "
+            "to abort (that now properly frees the cameras).\n\n"
+            "Launch now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
         self._cleanup_before_scan()
         cmd = f"cd {HERE} && ./run_scanner_docker.sh multi_slam"
-        self._run_command(cmd, "3-Cam SLAM (needs calibration; close the viz window to finish)")
+        self._run_command(cmd, "3-Cam SLAM (~40s to window; needs calibration; Stop to cancel)")
 
     def _on_overlap_check(self):
         self._cleanup_before_scan()
@@ -959,12 +974,22 @@ class ScannerGUI(QMainWindow):
             self._run_command(cmd, "Building Docker Image")
 
     def _on_stop(self):
-        """Stop the current command."""
-        if self.current_process and self.current_process.isRunning():
-            self.current_process.terminate()
-            self._log("[STOPPED by user]")
-            self.status_label.setText("Status: Stopped")
-            self.status_label.setStyleSheet("font-weight: bold; color: red;")
+        """Stop the current command AND any running scanner container.
+
+        Terminating the worker thread alone does NOT kill the `sudo docker run`
+        child or its container — they keep running and hold the USB cameras
+        (this is what left the Xtions stuck). So stop the containers explicitly;
+        _stop_scanner_containers() also terminates the tracked thread.
+        """
+        try:
+            n = self._stop_scanner_containers()
+            self._log(f"[STOPPED by user] killed {n} scanner container(s)")
+        except Exception as e:
+            self._log(f"[STOPPED by user] container-stop warning: {e}")
+            if self.current_process and self.current_process.isRunning():
+                self.current_process.terminate()
+        self.status_label.setText("Status: Stopped")
+        self.status_label.setStyleSheet("font-weight: bold; color: red;")
 
     def _on_command_output(self, text: str):
         """Append command output to log."""
