@@ -1,0 +1,15 @@
+# udev rules for Creality CR-Scan Ferret / Ferret SE on Linux
+#
+# The Ferret enumerates under Creality's USB vendor id 0xbcdc. By default a
+# non-root user cannot open the raw USB device, so Creality Scan (run under
+# Wine) or any capture tool fails to talk to the scanner. These rules grant
+# read/write access to members of the `plugdev` group and tag the device so
+# libusb-based software (incl. Wine's usb backend) can claim it.
+#
+# Install:
+#   sudo cp ferret_linux/99-creality-ferret.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# Then unplug and replug the scanner.
+
+SUBSYSTEM=="usb", ATTR{idVendor}=="bcdc", MODE="0666", GROUP="plugdev", TAG+="uaccess"
+SUBSYSTEM=="usb_device", ATTR{idVendor}=="bcdc", MODE="0666", GROUP="plugdev", TAG+="uaccess"
