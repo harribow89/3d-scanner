@@ -405,6 +405,41 @@ def place_camera(view: str, scene=None):
     return camera
 
 
+def enable_gpu() -> str:
+    """
+    Turn on GPU compute for Cycles and report what it found.
+
+    In background mode Cycles renders on the CPU unless both halves are set:
+    the add-on preference picking a backend with devices enabled, and the
+    scene's device set to GPU. Setting only scene.cycles.device silently keeps
+    rendering on the CPU.
+    """
+    try:
+        prefs = bpy.context.preferences.addons["cycles"].preferences
+    except (KeyError, AttributeError):
+        return "CPU (cycles preferences unavailable)"
+
+    for backend in ("OPTIX", "CUDA", "HIP", "METAL", "ONEAPI"):
+        try:
+            prefs.compute_device_type = backend
+        except (TypeError, ValueError):
+            continue
+        for refresh in ("refresh_devices", "get_devices"):
+            if hasattr(prefs, refresh):
+                try:
+                    getattr(prefs, refresh)()
+                except Exception:
+                    pass
+                break
+        devices = [d for d in getattr(prefs, "devices", []) if d.type == backend]
+        if not devices:
+            continue
+        for device in prefs.devices:
+            device.use = device.type == backend
+        return f"{backend}: " + ", ".join(d.name for d in devices)
+    return "CPU (no GPU devices found)"
+
+
 def _use_engine(render, engine: str) -> bool:
     """
     Try to select a render engine and confirm it took.
@@ -437,10 +472,9 @@ def configure_render(scene=None, samples=192, resolution=2000, engine="CYCLES"):
             cycles.transmission_bounces = 24
             cycles.transparent_max_bounces = 24
             cycles.use_adaptive_sampling = True
-            try:
-                cycles.device = 'GPU'
-            except Exception:
-                pass
+            compute = enable_gpu()
+            cycles.device = 'CPU' if compute.startswith("CPU") else 'GPU'
+            print(f"[HEC] Cycles compute: {compute}")
     else:
         for candidate in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
             if _use_engine(render, candidate):
