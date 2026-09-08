@@ -507,7 +507,10 @@ def printed_parts(p, lv, tiers, board_y, tray_y) -> list:
 
     # P06 — corner LED diffusers, segmented to fit the bed.
     seg_len = min(p["printer_bed"] - 20.0, 240.0)
-    segs = max(1, int(round((lv["glazed_height"] - 20.0) / seg_len)))
+    # Ceiling, not round: rounding down makes each segment LONGER than the
+    # target, which is how the brief preset ended up with 260 mm parts for a
+    # 256 mm bed.
+    segs = max(1, int(-(-(lv["glazed_height"] - 20.0) // seg_len)))
     seg_h = (lv["glazed_height"] - 20.0) / segs
     for sx in (-1, 1):
         for sy in (-1, 1):

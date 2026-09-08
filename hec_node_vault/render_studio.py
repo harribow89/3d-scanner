@@ -76,7 +76,8 @@ def _add_layer_lines(mat, bsdf, layer_mm=0.24):
     coord = nodes.new("ShaderNodeTexCoord")
     wave = nodes.new("ShaderNodeTexWave")
     wave.wave_type = 'BANDS'
-    wave.bands_direction = 'Z' if hasattr(wave, "bands_direction") else wave.bands_direction
+    if hasattr(wave, "bands_direction"):
+        wave.bands_direction = 'Z'
     wave.inputs["Scale"].default_value = max(1.0, 1.0 / (layer_mm * 0.001) / 40.0)
     if "Distortion" in wave.inputs:
         wave.inputs["Distortion"].default_value = 0.0
@@ -125,7 +126,8 @@ def _perforate(mat, bsdf, pitch=6.0, hole=0.42):
     links.new(add.outputs[0], threshold.inputs[0])
     if "Alpha" in bsdf.inputs:
         links.new(threshold.outputs[0], bsdf.inputs["Alpha"])
-    mat.blend_method = 'HASHED' if hasattr(mat, "blend_method") else mat.blend_method
+    if hasattr(mat, "blend_method"):
+        mat.blend_method = 'HASHED'
 
 
 def upgrade_materials():
@@ -172,7 +174,8 @@ def upgrade_materials():
             _set(bsdf, ("IOR",), recipe.get("ior", 1.45))
             if hasattr(mat, "use_screen_refraction"):
                 mat.use_screen_refraction = True
-            mat.blend_method = 'BLEND' if hasattr(mat, "blend_method") else mat.blend_method
+            if hasattr(mat, "blend_method"):
+                mat.blend_method = 'BLEND'
         if "emission" in recipe:
             _set(bsdf, ("Emission Color", "Emission"), recipe["base"])
             _set(bsdf, ("Emission Strength",), recipe["emission"])

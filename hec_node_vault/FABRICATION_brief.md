@@ -2,7 +2,7 @@
 
 HEC-PC-002 Rev A · 400 x 400 x 840 mm · 5 nodes · mATX boards · SFX PSUs
 
-**139 fabricated pieces**: 102 printed, 37 cut. Plus 12 lines of bought-in hardware. Estimated build time 31 h across 15 steps.
+**143 fabricated pieces**: 106 printed, 37 cut. Plus 12 lines of bought-in hardware. Estimated build time 31 h across 15 steps.
 
 ## Cut parts
 
@@ -29,7 +29,7 @@ HEC-PC-002 Rev A · 400 x 400 x 840 mm · 5 nodes · mATX boards · SFX PSUs
 | T02 | Tray rung | 5 | 150 x 25 x 3.0 | tray rung stock or 25 x 3 flat bar | from offcut |
 
 - **E01** — Cut all four in one setup so they are identical — any difference here twists the whole case.
-- **T01** — Cut to length, deburr every cut strand, fit the printed end caps. Galvanised swarf in a running machine is a bad day.
+- **T01** — Cut to length, deburr every cut strand, fit the printed end caps. Galvanised swarf in a running machine is a short circuit waiting to happen.
 - **T02** — Only if the tray's own rung pitch does not match the tier pitch — measure before ordering.
 
 ### Sheet metal — laser/CNC cut and fold
@@ -70,7 +70,7 @@ HEC-PC-002 Rev A · 400 x 400 x 840 mm · 5 nodes · mATX boards · SFX PSUs
 | P03 | GPU cradle | 5 | 60 x 50 x 90 | PETG | 0.24 | 35% | yes | DRAFT |
 | P04 | PSU cradle | 5 | 112 x 137 x 22 | ASA | 0.24 | 30% | no | DRAFT |
 | P05 | Fan shroud | 5 | 130 x 130 x 28 | PETG | 0.28 | 20% | no | ready |
-| P06 | LED corner diffuser | 8 | 22 x 22 x 260 | Clear PETG | 0.2 | 15% | no | ready |
+| P06 | LED corner diffuser | 12 | 22 x 22 x 173 | Clear PETG | 0.2 | 15% | no | ready |
 | P07 | Glass edge clip | 12 | 45 x 45 x 18 | TPU 95A | 0.2 | 25% | no | ready |
 | P08 | Corner bracket | 8 | 70 x 70 x 70 | PETG | 0.2 | 60% | yes | DRAFT |
 | P09 | Cable comb | 10 | 90 x 22 x 14 | PETG | 0.2 | 20% | no | ready |

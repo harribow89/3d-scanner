@@ -59,7 +59,7 @@
 
 **Tools:** crimpers, multimeter, label maker
 
-> Your trade, your call — but the model's own check says this is ~10.5 A at full tilt on five nodes. Dedicated circuit, Type C RCBO for the inrush, and stagger the PSU starts if you can.
+> Your trade, your call — but the model's own check puts this at ~8.4 A (1933 W) at full tilt on 4 nodes. Dedicated circuit, Type C RCBO for the inrush, and stagger the PSU starts if you can.
 
 ## Step 5 — Stand the spine
 
@@ -147,7 +147,7 @@
 - Clip the printed diffusers over the strips.
 - Test the full run before the glass traps it.
 
-**Printed parts (12):** P06_LED_Diffuser_LB_1, P06_LED_Diffuser_LB_2, P06_LED_Diffuser_LB_3, P06_LED_Diffuser_LF_1, P06_LED_Diffuser_LF_2, P06_LED_Diffuser_LF_3, P06_LED_Diffuser_RB_1, P06_LED_Diffuser_RB_2, P06_LED_Diffuser_RB_3, P06_LED_Diffuser_RF_1, P06_LED_Diffuser_RF_2, P06_LED_Diffuser_RF_3
+**Printed parts (16):** P06_LED_Diffuser_LB_1, P06_LED_Diffuser_LB_2, P06_LED_Diffuser_LB_3, P06_LED_Diffuser_LB_4, P06_LED_Diffuser_LF_1, P06_LED_Diffuser_LF_2, P06_LED_Diffuser_LF_3, P06_LED_Diffuser_LF_4, P06_LED_Diffuser_RB_1, P06_LED_Diffuser_RB_2, P06_LED_Diffuser_RB_3, P06_LED_Diffuser_RB_4, P06_LED_Diffuser_RF_1, P06_LED_Diffuser_RF_2, P06_LED_Diffuser_RF_3, P06_LED_Diffuser_RF_4
 
 **Cut parts:** M02 LED strip run
 
