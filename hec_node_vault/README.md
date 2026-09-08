@@ -15,6 +15,8 @@ Built from the design brief and the 28 part photos. Companion to
 | `build_blender.py` | Turns the spec into Blender objects, wires the explode slider, exports STLs and the manifest. |
 | `fabrication.py` | The full fabrication manifest — printed **and** cut parts, cut list, bought-in fixings — plus the 15-step assembly sequence. Pure Python. |
 | `render_studio.py` | Photoreal product rendering: real materials, bevels, studio lighting, Cycles. |
+| `detail_layout.py` | Where every fan blade, RAM stick, connector and cable run sits. Pure Python, and it checks itself for clashes. |
+| `detail.py` | Builds that detail in Blender and parents it to the placeholders. |
 | `FABRICATION.md` | Every fabricated piece for the `resolved` preset, grouped by process. |
 | `ASSEMBLY.md` | Step-by-step build sequence. |
 | `manifest_brief.md` / `manifest_resolved.md` | Printed-parts manifests per preset. |
@@ -45,6 +47,23 @@ blender --background --factory-startup -P build_blender.py -- \
     --preset resolved --save vault.blend \
     --export-stl printed/ --manifest manifest.md
 ```
+
+**Detail geometry** (implied by any `--render`, or on its own with `--detail`):
+
+```bash
+blender -P build_blender.py -- --preset resolved --detail
+```
+
+Adds ~590 objects on top of the 149 model parts: fan frames with twisted,
+bent blades and corner mounts; GPU shrouds with two fans, a 46-fin stack,
+PCIe bracket, backplate and 8-pin sockets; boards down to RAM sticks, tower
+cooler, VRM and chipset heatsinks, slots, headers and chokes; PSU faces with
+grille, IEC inlet, switch and modular panel; and cable runs as bevelled curves
+that sag under their own weight from PSU to board and card.
+
+Every detail object is parented to its placeholder, so the explode slider still
+drives the lot, and `spec.py` — the fabrication truth — is untouched. Pass
+`--no-detail` to render the plain block model.
 
 **Photoreal product shots:**
 
@@ -112,6 +131,10 @@ written:
   SFX units rotated 90° do fit. The spec picks the better orientation itself.
 - **Stability (major).** 840 mm on a 400 mm base is 2.1:1 with the mass high up.
   Outrigger feet, a wider base, or a wall strap.
+- **Cooler vs card (major).** A 79 mm tower cooler reaches 90 mm above the
+  tray while the card sits at 31 mm — they want the same space. Low-profile
+  coolers (~45 mm), taller risers, or offset the card in plan. This one only
+  surfaced once the detail model put a real cooler on the board.
 - **Weight.** ~52 kg all-up on the brief numbers, ~60 kg resolved, about a
   quarter of it glass. Casters need to be rated 50 kg+ each.
 
@@ -198,7 +221,9 @@ motherboard headers over time.
 ## What this model is not
 
 It is a design and layout model: correct sizes, positions, clearances and
-assembly relationships, with parts as simplified solids. It is not
+assembly relationships. With `--detail` the electronics are convincingly
+detailed for a render, but they are *representative* hardware — a generic
+two-fan card and a generic mATX board, not your specific parts. It is not
 manufacturing CAD — no fasteners, no fillets, no sheet-metal bend allowances,
 no real tray profile. Use it to settle the layout, check fit, print the
 brackets, and make the exploded animation; use measured CAD for anything that

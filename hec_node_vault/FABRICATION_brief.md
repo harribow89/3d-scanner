@@ -101,6 +101,7 @@ HEC-PC-002 Rev A · 400 x 400 x 840 mm · 5 nodes · mATX boards · SFX PSUs
 ## Checks carried over from the model
 
 - **Major** (fit): Board + riser + GPU is ~151 mm per tier but the pitch is 120 mm. Raise the pitch to ~176 mm (and the envelope with it) or lay the GPUs flat on risers.
+- **Major** (fit): A 79 mm tower cooler reaches 90 mm above the tray, but the card sits at 31 mm — they occupy the same space. Fit low-profile coolers (~45 mm), raise the card to 89 mm on taller risers, or offset the card so it clears the cooler in plan.
 - **BLOCKER** (thermal): ~2417 W of heat needs about 283 CFM to hold a 15 K rise, but 3 x 120 mm exhaust fans give roughly 99 CFM through a grille. You need about 6 x 140 mm high-static-pressure fans, or accept a bigger temperature rise.
 - **BLOCKER** (electrical): ~2417 W is about 10.5 A at 230 V — at or over a standard 10 A outlet circuit, before anything else on it. Needs its own circuit (or two), and inrush from five PSUs starting together will nuisance-trip a Type B RCBO; specify Type C.
 - Note (weight): Estimated all-up mass ~52 kg (15 kg of that is glass). That is ~13 kg per caster — specify 75 mm casters rated 50 kg+ each, and lock them: the centre of mass is high.

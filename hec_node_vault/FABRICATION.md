@@ -100,6 +100,7 @@ HEC-PC-002 Rev A · 500 x 500 x 1145 mm · 4 nodes · mATX boards · SFX PSUs
 
 ## Checks carried over from the model
 
+- **Major** (fit): A 79 mm tower cooler reaches 90 mm above the tray, but the card sits at 31 mm — they occupy the same space. Fit low-profile coolers (~45 mm), raise the card to 89 mm on taller risers, or offset the card so it clears the cooler in plan.
 - Note (weight): Estimated all-up mass ~60 kg (27 kg of that is glass). That is ~15 kg per caster — specify 75 mm casters rated 50 kg+ each, and lock them: the centre of mass is high.
 - **Major** (stability): 1145 mm tall on a 500 mm base is a 2.3:1 ratio with the mass up high. Widen the base, add outrigger feet, or plan to strap it to a wall.
 
