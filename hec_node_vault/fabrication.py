@@ -113,7 +113,7 @@ def cut_parts(spec: dict) -> list:
                     f"{p['tray_width']:.0f} mm ladder tray",
                     (p["tray_width"], p["tray_depth"], tray_len), 1,
                     note="Cut to length, deburr every cut strand, fit the printed end "
-                         "caps. Galvanised swarf in a running machine is a bad day.",
+                         "caps. Galvanised swarf in a running machine is a short circuit waiting to happen.",
                     tool="angle grinder or tray cutter", stock="3 m length"))
     out.append(_cut("T02", "Tray rung", "saw", "tray rung stock or 25 x 3 flat bar",
                     (p["tray_width"], 25.0, 3.0), int(p["node_count"]),
@@ -179,6 +179,12 @@ def assembly_steps(spec: dict) -> list:
     p = spec["params"]
     n = int(p["node_count"])
     fan = int(p["fan_size"])
+    # Derive the electrical figures rather than hardcoding them: they change
+    # with the preset's node count and with the POWER assumptions.
+    power = vault_spec.POWER
+    total_w = ((power["cpu"] + power["gpu"] + power["board_and_drives"]) * n
+               / power["psu_efficiency"])
+    amps = total_w / 230.0
     steps = [
         {
             "no": 1, "title": "Measure and check before you make anything",
@@ -235,9 +241,10 @@ def assembly_steps(spec: dict) -> list:
                 "Bond the chassis and the tray to earth, and test continuity.",
                 "Label every outlet to its node before the cables disappear upward.",
             ],
-            "warning": "Your trade, your call — but the model's own check says this is "
-                       "~10.5 A at full tilt on five nodes. Dedicated circuit, Type C "
-                       "RCBO for the inrush, and stagger the PSU starts if you can.",
+            "warning": (f"Your trade, your call — but the model's own check puts this "
+                        f"at ~{amps:.1f} A ({total_w:.0f} W) at full tilt on {n} nodes. "
+                        f"Dedicated circuit, Type C RCBO for the inrush, and stagger "
+                        f"the PSU starts if you can."),
         },
         {
             "no": 5, "title": "Stand the spine",

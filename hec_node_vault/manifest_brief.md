@@ -2,13 +2,11 @@
 
 Generated from `spec.py` (HEC-PC-002 Rev A). Envelope 400 x 400 x 840 mm, 5 nodes at 120 mm pitch, mATX boards, SFX PSUs.
 
-- Parts in the assembly: **147**
-- Printed parts: **102**
+- Parts in the assembly: **151**
+- Printed parts: **106**
 - Filament estimate: **~7547 g** (~7.55 spools, ~$226 at $30/kg) — bounding-box volume x 34% fill, so treat it as an upper bound.
 - Shelf heights (mm): 215, 335, 455, 575, 695
 - Glazed section: 225 to 765 mm
-
-> **8 part(s) exceed the 256 mm bed:** P06_LED_Diffuser_LF_1, P06_LED_Diffuser_LF_2, P06_LED_Diffuser_LB_1, P06_LED_Diffuser_LB_2, P06_LED_Diffuser_RF_1, P06_LED_Diffuser_RF_2, P06_LED_Diffuser_RB_1, P06_LED_Diffuser_RB_2
 
 ## Printed parts
 
@@ -19,7 +17,7 @@ Generated from `spec.py` (HEC-PC-002 Rev A). Envelope 400 x 400 x 840 mm, 5 node
 | 3 | GPU cradle | 5 | 60 x 50 x 90 | PETG | 0.24 | 4 | 35% | yes | DRAFT — needs CAD |
 | 4 | PSU cradle | 5 | 112 x 137 x 22 | ASA | 0.24 | 4 | 30% | no | DRAFT — needs CAD |
 | 5 | Fan shroud | 5 | 130 x 130 x 28 | PETG | 0.28 | 3 | 20% | no | ready to slice |
-| 6 | LED corner diffuser | 8 | 22 x 22 x 260 | Clear PETG | 0.2 | 2 | 15% | no | ready to slice |
+| 6 | LED corner diffuser | 12 | 22 x 22 x 173 | Clear PETG | 0.2 | 2 | 15% | no | ready to slice |
 | 7 | Glass edge clip | 12 | 45 x 45 x 18 | TPU 95A | 0.2 | 3 | 25% | no | ready to slice |
 | 8 | Corner bracket | 8 | 70 x 70 x 70 | PETG | 0.2 | 5 | 60% | yes | DRAFT — needs CAD |
 | 9 | Cable comb | 10 | 90 x 22 x 14 | PETG | 0.2 | 3 | 20% | no | ready to slice |
