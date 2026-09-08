@@ -3,10 +3,16 @@
     # interactive (GUI): open in the Text Editor and press Run Script, or
     blender -P build_blender.py
 
-    # headless build + STLs + manifest
+    # headless build + STLs + manifests
     blender --background --factory-startup -P build_blender.py -- \
         --preset resolved --save vault.blend --export-stl printed/ \
-        --manifest manifest.md
+        --fabrication FABRICATION.md --assembly ASSEMBLY.md
+
+    # photoreal product shots, and the assembly sequence as images
+    blender --background -P build_blender.py -- --preset resolved \
+        --render shots/ --views hero,front,detail,night --samples 256
+    blender --background -P build_blender.py -- --preset resolved \
+        --render-steps steps/
 
 Everything is driven by `spec.py`, which holds the dimensions and does the fit,
 thermal, electrical and weight checks. This module only turns that spec into
@@ -343,6 +349,51 @@ def export_printed_stls(directory: str) -> list:
     return written
 
 
+def render_assembly_steps(spec, out_dir: str, samples: int = 64, resolution: int = 1400,
+                          engine: str = "CYCLES", view: str = "hero") -> dict:
+    """
+    Render the build sequence as progressive images: step N shows everything
+    installed up to and including step N, from one fixed camera.
+
+    One camera and one lighting setup across the whole set, so the slides read
+    as a build rather than a gallery.
+    """
+    import fabrication
+    import render_studio
+
+    os.makedirs(out_dir, exist_ok=True)
+    scene = bpy.context.scene
+    steps = fabrication.assembly_steps(spec)
+
+    # Frame the finished machine once, so nothing jumps between slides.
+    render_studio.build_studio(scene, night=False)
+    camera = render_studio.place_camera(view, scene)
+    render_studio.configure_render(scene, samples=samples, resolution=resolution,
+                                   engine=engine)
+
+    original = {o.name: o.hide_render for o in scene.objects}
+    written = {}
+    try:
+        for step in steps:
+            visible = set(fabrication.parts_visible_at(spec, step["no"]))
+            for obj in scene.objects:
+                if obj.name.startswith(render_studio.STUDIO_PREFIX):
+                    continue
+                obj.hide_render = obj.name not in visible
+            path = os.path.join(out_dir, f"step-{step['no']:02d}.png")
+            scene.render.filepath = path
+            bpy.ops.render.render(write_still=True)
+            if os.path.isfile(path):
+                written[step["no"]] = os.path.abspath(path)
+    finally:
+        for obj in scene.objects:
+            if obj.name in original:
+                obj.hide_render = original[obj.name]
+        bpy.data.objects.remove(camera, do_unlink=True)
+        render_studio.clear_studio()
+    return written
+
+
 def main():
     preset = _arg("--preset", "brief")
     if preset not in vault_spec.PRESETS:
@@ -368,6 +419,46 @@ def main():
     if stl_dir:
         written = export_printed_stls(stl_dir)
         print(f"[HEC] {len(written)} STL(s) -> {stl_dir}")
+
+    if _flag("--studio") or _arg("--render") or _arg("--render-steps"):
+        import render_studio
+        render_studio.prepare()
+        print("[HEC] studio materials and bevels applied")
+
+    shots = _arg("--render")
+    if shots:
+        import render_studio
+        views = [v.strip() for v in _arg("--views", "hero").split(",") if v.strip()]
+        written = render_studio.render_views(
+            shots, views=views,
+            samples=int(_arg("--samples", "192")),
+            resolution=int(_arg("--res", "2000")),
+            engine=_arg("--engine", "CYCLES").upper())
+        for view, path in written.items():
+            print(f"[HEC] {view} -> {path}")
+
+    step_dir = _arg("--render-steps")
+    if step_dir:
+        written = render_assembly_steps(
+            spec, step_dir,
+            samples=int(_arg("--step-samples", "64")),
+            resolution=int(_arg("--step-res", "1400")),
+            engine=_arg("--engine", "CYCLES").upper())
+        print(f"[HEC] {len(written)} assembly step render(s) -> {step_dir}")
+
+    fab = _arg("--fabrication")
+    if fab:
+        import fabrication as fabrication_mod
+        with open(fab, "w", encoding="utf-8") as f:
+            f.write(fabrication_mod.manifest_markdown(spec))
+        print(f"[HEC] fabrication manifest -> {fab}")
+
+    assembly = _arg("--assembly")
+    if assembly:
+        import fabrication as fabrication_mod
+        with open(assembly, "w", encoding="utf-8") as f:
+            f.write(fabrication_mod.assembly_markdown(spec))
+        print(f"[HEC] assembly sequence -> {assembly}")
 
     blend = _arg("--save")
     if blend:
