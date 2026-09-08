@@ -14,6 +14,7 @@ Pure Python, no bpy. Run it directly:
 import json
 import sys
 
+import detail_layout as dl
 import spec as vault_spec
 
 # Processes, in the order a shop would schedule them.
@@ -93,11 +94,17 @@ def cut_parts(spec: dict) -> list:
                          "than hole size — aim for 40%+ or it strangles the fans.",
                     tool="laser cut to outline", stock="perforated sheet"))
     fan = p["fan_size"]
+    # Hole pattern comes from the fan actually specified: 105 mm PCD on a 120,
+    # 124.5 on a 140. Hard-coding 105 would send the shop ten plates whose
+    # holes miss the fans by 10 mm a side.
+    holes = dl.fan_layout(fan)["mount_holes"]
+    pcd = abs(holes[0][0]) * 2.0
     out.append(_cut("S08", "Fan mounting plate", "sheet", "1.5 mm aluminium",
                     (fan + 30.0, fan + 30.0, 1.5),
                     int(p["exhaust_fans"] + p["intake_fans"]),
-                    note=f"{fan:.0f} mm bore plus a 105 mm PCD of M4 clearance holes. "
-                         f"The punched knockout plate in photo 3 is the same idea.",
+                    note=f"{fan:.0f} mm fan: {fan * 0.94:.0f} mm bore plus four M4 "
+                         f"clearance holes on a {pcd:.1f} mm PCD. The punched knockout "
+                         f"plate in photo 3 is the same idea.",
                     tool="laser cut", stock="1.5 mm sheet"))
 
     # --- extrusion and tray --------------------------------------------------

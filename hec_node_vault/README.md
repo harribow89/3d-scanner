@@ -169,18 +169,23 @@ shrouds, corner LED diffusers, glass edge clips, corner brackets, cable combs,
 a VESA adapter plate, tray end caps, caster pads, display bezel halves, and dust
 filter frames.
 
-**Read this before you print anything.** Parts are generated as parametric
-massing with correct bounding sizes and mounting positions. The manifest marks
-each one `ready to slice` or `DRAFT — needs CAD`:
+**Read this before you print anything.** Every STL this project exports is a
+**massing envelope**: correct outside dimensions and mounting position, and
+nothing else. There are no bores, slots, counterbores or fastener holes. A fan
+shroud exported today is a solid block that would seal the airflow path rather
+than duct it, and a filter frame has no window in it.
 
-- **Ready** (comb, caster pad, fan shroud, LED diffuser, VESA plate, filter
-  frame, tray cap, glass clip): simple enough that the generated geometry is
-  close to final — you still need to confirm hole positions against the real
-  parts.
-- **Draft** (rung clamps, GPU cradle, PSU cradle, corner brackets, display
-  bezel): these need dimensioned CAD against the actual tray, cards and PSUs.
-  The model gives you the envelope and position; it does not give you the
-  fastener geometry.
+The manifest grades how much CAD each one still needs:
+
+- **massing — simple form** (comb, caster pad, fan shroud, LED diffuser, VESA
+  plate, filter frame, tray cap, glass clip): the outline is close to final, so
+  adding the openings is a short job once you have measured the hardware.
+- **massing — needs dimensioned CAD** (rung clamps, GPU cradle, PSU cradle,
+  corner brackets, display bezel): these need real CAD against the actual tray,
+  cards and PSUs before they mean anything.
+
+Use the STLs to check fit in space and to drive the renders. Do not send one to
+a printer expecting a working part.
 
 Nothing here has been test-fitted, because none of the real dimensions have been
 measured yet — every size traces back to the brief's assumptions.

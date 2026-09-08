@@ -49,7 +49,7 @@ HEC-PC-002 Rev A · 400 x 400 x 840 mm · 5 nodes · mATX boards · SFX PSUs
 - **S03** — Takes the tray load and the node stack above it — 2 mm, and add a folded return on all four edges for stiffness.
 - **S04** — Caster mounts land here; see the caster pads.
 - **S07** — Perforated stock from photos 1 & 2. Open area matters more than hole size — aim for 40%+ or it strangles the fans.
-- **S08** — 120 mm bore plus a 105 mm PCD of M4 clearance holes. The punched knockout plate in photo 3 is the same idea.
+- **S08** — 120 mm fan: 113 mm bore plus four M4 clearance holes on a 105.0 mm PCD. The punched knockout plate in photo 3 is the same idea.
 
 ### Cut by hand
 

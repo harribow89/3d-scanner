@@ -372,6 +372,20 @@ def render_assembly_steps(spec, out_dir: str, samples: int = 64, resolution: int
                                    engine=engine)
 
     original = {o.name: o.hide_render for o in scene.objects}
+    # Placeholders that detail.apply_all replaced are already hidden; they must
+    # stay hidden, or the step renders show the coarse block sitting inside its
+    # own detailed version.
+    replaced = {o.name for o in scene.objects if o.hide_render}
+
+    def installed(obj, visible):
+        """A detail child is visible when its placeholder is: walk the parents."""
+        node = obj
+        while node is not None:
+            if node.name in visible:
+                return True
+            node = node.parent
+        return False
+
     written = {}
     try:
         for step in steps:
@@ -379,7 +393,8 @@ def render_assembly_steps(spec, out_dir: str, samples: int = 64, resolution: int
             for obj in scene.objects:
                 if obj.name.startswith(render_studio.STUDIO_PREFIX):
                     continue
-                obj.hide_render = obj.name not in visible
+                obj.hide_render = (not installed(obj, visible)
+                                   or obj.name in replaced)
             path = os.path.join(out_dir, f"step-{step['no']:02d}.png")
             scene.render.filepath = path
             bpy.ops.render.render(write_still=True)

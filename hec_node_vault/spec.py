@@ -889,8 +889,13 @@ def manifest_markdown(spec: dict) -> str:
             f"{prof.get('material', '?')} | {prof.get('layer_mm', '?')} | "
             f"{prof.get('walls', '?')} | {prof.get('infill_pct', '?')}% | "
             f"{'yes' if prof.get('supports') else 'no'} | "
-            f"{'DRAFT — needs CAD' if prof.get('draft') else 'ready to slice'} |")
+            f"{'massing — needs dimensioned CAD' if prof.get('draft') else 'massing — simple form'} |")
 
+    out += ["", "> **Every STL this project exports is a massing envelope**: correct "
+            "outside dimensions and mounting position, but no bores, slots, "
+            "counterbores or fastener holes. A fan shroud exported today is a solid "
+            "block that would seal the airflow path, not duct it. Model the openings "
+            "before printing anything for fit.", ""]
     out += ["", "### What each part is for", ""]
     for key in sorted(grouped):
         prof = grouped[key][0].get("print_profile", {})

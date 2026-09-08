@@ -12,21 +12,24 @@ Generated from `spec.py` (HEC-PC-002 Rev A). Envelope 400 x 400 x 840 mm, 5 node
 
 | # | Part | Qty | Size (mm) | Material | Layer | Walls | Infill | Support | Status |
 |--:|------|----:|-----------|----------|-------|------:|-------:|---------|--------|
-| 1 | Node sled rail | 10 | 40 x 248 x 25 | PETG | 0.24 | 4 | 40% | no | ready to slice |
-| 2 | Tray rung clamp | 20 | 55 x 45 x 30 | PETG | 0.2 | 5 | 50% | no | DRAFT — needs CAD |
-| 3 | GPU cradle | 5 | 60 x 50 x 90 | PETG | 0.24 | 4 | 35% | yes | DRAFT — needs CAD |
-| 4 | PSU cradle | 5 | 112 x 137 x 22 | ASA | 0.24 | 4 | 30% | no | DRAFT — needs CAD |
-| 5 | Fan shroud | 5 | 130 x 130 x 28 | PETG | 0.28 | 3 | 20% | no | ready to slice |
-| 6 | LED corner diffuser | 12 | 22 x 22 x 173 | Clear PETG | 0.2 | 2 | 15% | no | ready to slice |
-| 7 | Glass edge clip | 12 | 45 x 45 x 18 | TPU 95A | 0.2 | 3 | 25% | no | ready to slice |
-| 8 | Corner bracket | 8 | 70 x 70 x 70 | PETG | 0.2 | 5 | 60% | yes | DRAFT — needs CAD |
-| 9 | Cable comb | 10 | 90 x 22 x 14 | PETG | 0.2 | 3 | 20% | no | ready to slice |
-| 10 | VESA adapter plate | 1 | 140 x 12 x 140 | PETG | 0.2 | 5 | 60% | no | ready to slice |
-| 11 | Tray end cap | 2 | 158 x 68 x 20 | PETG | 0.24 | 3 | 25% | no | ready to slice |
-| 12 | Caster mount pad | 4 | 95 x 95 x 14 | PETG | 0.2 | 6 | 60% | no | ready to slice |
-| 13 | Display bezel rail | 6 | 180 x 25 x 45 | PETG | 0.24 | 3 | 15% | no | DRAFT — needs CAD |
-| 13 | Display bezel stile | 4 | 45 x 25 x 175 | PETG | 0.24 | 3 | 15% | no | DRAFT — needs CAD |
-| 14 | Dust filter frame | 2 | 140 x 140 x 12 | PETG | 0.24 | 3 | 20% | no | ready to slice |
+| 1 | Node sled rail | 10 | 40 x 248 x 25 | PETG | 0.24 | 4 | 40% | no | massing — simple form |
+| 2 | Tray rung clamp | 20 | 55 x 45 x 30 | PETG | 0.2 | 5 | 50% | no | massing — needs dimensioned CAD |
+| 3 | GPU cradle | 5 | 60 x 50 x 90 | PETG | 0.24 | 4 | 35% | yes | massing — needs dimensioned CAD |
+| 4 | PSU cradle | 5 | 112 x 137 x 22 | ASA | 0.24 | 4 | 30% | no | massing — needs dimensioned CAD |
+| 5 | Fan shroud | 5 | 130 x 130 x 28 | PETG | 0.28 | 3 | 20% | no | massing — simple form |
+| 6 | LED corner diffuser | 12 | 22 x 22 x 173 | Clear PETG | 0.2 | 2 | 15% | no | massing — simple form |
+| 7 | Glass edge clip | 12 | 45 x 45 x 18 | TPU 95A | 0.2 | 3 | 25% | no | massing — simple form |
+| 8 | Corner bracket | 8 | 70 x 70 x 70 | PETG | 0.2 | 5 | 60% | yes | massing — needs dimensioned CAD |
+| 9 | Cable comb | 10 | 90 x 22 x 14 | PETG | 0.2 | 3 | 20% | no | massing — simple form |
+| 10 | VESA adapter plate | 1 | 140 x 12 x 140 | PETG | 0.2 | 5 | 60% | no | massing — simple form |
+| 11 | Tray end cap | 2 | 158 x 68 x 20 | PETG | 0.24 | 3 | 25% | no | massing — simple form |
+| 12 | Caster mount pad | 4 | 95 x 95 x 14 | PETG | 0.2 | 6 | 60% | no | massing — simple form |
+| 13 | Display bezel rail | 6 | 180 x 25 x 45 | PETG | 0.24 | 3 | 15% | no | massing — needs dimensioned CAD |
+| 13 | Display bezel stile | 4 | 45 x 25 x 175 | PETG | 0.24 | 3 | 15% | no | massing — needs dimensioned CAD |
+| 14 | Dust filter frame | 2 | 140 x 140 x 12 | PETG | 0.24 | 3 | 20% | no | massing — simple form |
+
+> **Every STL this project exports is a massing envelope**: correct outside dimensions and mounting position, but no bores, slots, counterbores or fastener holes. A fan shroud exported today is a solid block that would seal the airflow path, not duct it. Model the openings before printing anything for fit.
+
 
 ### What each part is for
 
