@@ -471,6 +471,15 @@ def configure_render(scene=None, samples=192, resolution=2000, engine="CYCLES"):
         if cycles:
             cycles.samples = samples
             cycles.use_denoising = True
+            # Distro builds (Ubuntu's 4.0.2, for one) ship without
+            # OpenImageDenoise. Prefer whichever denoiser this build has;
+            # _render_still degrades gracefully if it turns out to have none.
+            for denoiser in ("OPTIX", "OPENIMAGEDENOISE"):
+                try:
+                    cycles.denoiser = denoiser
+                    break
+                except (TypeError, ValueError):
+                    continue
             cycles.max_bounces = 24
             cycles.transmission_bounces = 24
             cycles.transparent_max_bounces = 24
@@ -510,6 +519,30 @@ def configure_render(scene=None, samples=192, resolution=2000, engine="CYCLES"):
     view_settings.gamma = 1.0
 
 
+def _render_still(scene, path):
+    """
+    Render one frame, surviving a Blender built without a denoiser.
+
+    Ubuntu's packaged Blender raises "Build without OpenImageDenoiser" from
+    the render operator itself, which kills the whole run partway through a
+    batch. Catch that one case, turn denoising off and render again — a
+    noisier frame beats no frame.
+    """
+    try:
+        bpy.ops.render.render(write_still=True)
+        return True
+    except RuntimeError as error:
+        message = str(error).lower()
+        cycles = getattr(scene, "cycles", None)
+        if "denois" not in message or cycles is None or not cycles.use_denoising:
+            raise
+        cycles.use_denoising = False
+        print("[HEC] this Blender build has no denoiser — rendering without it "
+              "(raise --samples to compensate)")
+        bpy.ops.render.render(write_still=True)
+        return True
+
+
 def render_views(out_dir: str, views=("hero",), samples=192, resolution=2000,
                  engine="CYCLES", scene=None) -> dict:
     """Studio-render each named view. Returns {view: path}."""
@@ -531,7 +564,7 @@ def render_views(out_dir: str, views=("hero",), samples=192, resolution=2000,
         configure_render(scene, samples=samples, resolution=resolution, engine=engine)
         path = os.path.join(out_dir, f"{view}.png")
         scene.render.filepath = path
-        bpy.ops.render.render(write_still=True)
+        _render_still(scene, path)
         if os.path.isfile(path):
             written[view] = os.path.abspath(path)
         bpy.data.objects.remove(camera, do_unlink=True)
