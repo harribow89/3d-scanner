@@ -22,8 +22,15 @@ VIEWS = {
     "hero":   {"dir": (0.85, -1.0, 0.42), "lens": 60.0, "margin": 1.28, "night": False},
     "front":  {"dir": (0.0, -1.0, 0.16),  "lens": 85.0, "margin": 1.22, "night": False},
     "side":   {"dir": (1.0, -0.12, 0.16), "lens": 85.0, "margin": 1.22, "night": False},
-    "detail": {"dir": (0.7, -1.0, 0.12),  "lens": 100.0, "margin": 0.42, "night": False},
+    # Close on one node, glazing off — this is the shot that shows the fan
+    # blades, heatsinks, connectors and loom.
+    "detail": {"dir": (0.62, -1.0, 0.10), "lens": 85.0, "margin": 0.62,
+               "night": False, "hide": ("01_Glass", "08_Top_Cap", "11_", "12_", "P13_")},
     "night":  {"dir": (0.9, -1.0, 0.30),  "lens": 60.0, "margin": 1.30, "night": True},
+    # Same framing as the hero with the glazing off — the only way to actually
+    # see inside a tinted box, and the shot that shows the build.
+    "cutaway": {"dir": (0.85, -1.0, 0.42), "lens": 60.0, "margin": 1.22,
+                "night": False, "hide": ("01_Glass", "08_Top_Cap")},
 }
 
 STUDIO_PREFIX = "HEC_STUDIO_"
@@ -142,9 +149,11 @@ def upgrade_materials():
         "HEC_pcb": {"base": (0.02, 0.14, 0.07, 1.0), "rough": 0.42, "metal": 0.1},
         "HEC_printed": {"base": (0.40, 0.42, 0.46, 1.0), "rough": 0.58, "metal": 0.0,
                         "layers": 0.24},
-        "HEC_diffuser": {"base": (0.92, 0.95, 0.97, 1.0), "rough": 0.5, "metal": 0.0,
-                         "transmission": 0.92, "ior": 1.46},
-        "HEC_led": {"base": (0.25, 0.85, 0.80, 1.0), "emission": 45.0},
+        # IOR ~1 so the diffuser does not refract: at 1.46 the strip inside it
+        # became a light trap and the corners rendered dead.
+        "HEC_diffuser": {"base": (0.97, 0.98, 0.99, 1.0), "rough": 0.12, "metal": 0.0,
+                         "transmission": 1.0, "ior": 1.02},
+        "HEC_led": {"base": (0.25, 0.85, 0.80, 1.0), "emission": 220.0},
     }
 
     for name, recipe in recipes.items():
@@ -201,7 +210,9 @@ def add_bevels(width_mm=0.6, segments=2):
             bevel.segments = segments
             bevel.limit_method = 'ANGLE'
             bevel.angle_limit = math.radians(40.0)
-            bevel.harden_normals = True
+            # harden_normals rewrites custom normals, which wrecks refraction —
+            # the glass rendered as an opaque black box with it on.
+            bevel.harden_normals = False
         for polygon in obj.data.polygons:
             polygon.use_smooth = True
         if hasattr(obj.data, "use_auto_smooth"):       # Blender < 4.1
@@ -229,6 +240,32 @@ def _subject_bounds(scene):
 def clear_studio():
     for obj in [o for o in bpy.data.objects if o.name.startswith(STUDIO_PREFIX)]:
         bpy.data.objects.remove(obj, do_unlink=True)
+
+
+def _interior_fill(scene, centre, radius, night=False):
+    """Emissive panels inside the case, hidden from camera and refraction."""
+    material = bpy.data.materials.get(STUDIO_PREFIX + "Fill")
+    if material is None:
+        material = bpy.data.materials.new(STUDIO_PREFIX + "Fill")
+        material.use_nodes = True
+        bsdf = _principled(material)
+        if bsdf:
+            _set(bsdf, ("Emission Color", "Emission"), (1.0, 0.97, 0.92, 1.0))
+            _set(bsdf, ("Emission Strength",), 3.0 if night else 9.0)
+            _set(bsdf, ("Base Color",), (0.0, 0.0, 0.0, 1.0))
+
+    for level in (0.55, 0.0, -0.55):
+        bpy.ops.mesh.primitive_cube_add(size=radius * 1.15,
+                                        location=(centre.x, centre.y,
+                                                  centre.z + radius * level))
+        panel = bpy.context.active_object
+        panel.name = f"{STUDIO_PREFIX}Fill_{level:+.2f}"
+        panel.scale = (1.0, 1.0, 0.03)
+        panel.data.materials.append(material)
+        for ray_type in ("visible_camera", "visible_glossy", "visible_transmission",
+                         "visible_diffuse"):
+            if hasattr(panel, ray_type):
+                setattr(panel, ray_type, ray_type == "visible_diffuse")
 
 
 def build_studio(scene=None, night=False):
@@ -260,14 +297,11 @@ def build_studio(scene=None, night=False):
         background.inputs["Color"].default_value = (0.012, 0.014, 0.018, 1.0)
         background.inputs["Strength"].default_value = 0.08 if night else 0.55
 
-    # Interior fill: without it the guts read as a black box through the glass,
-    # which is exactly what the first render did.
-    interior = bpy.data.lights.new(STUDIO_PREFIX + "Interior", type='POINT')
-    interior.energy = (120.0 if night else 350.0) * max(radius, 0.15) ** 2
-    interior.shadow_soft_size = radius * 0.35
-    interior_obj = bpy.data.objects.new(STUDIO_PREFIX + "Interior", interior)
-    interior_obj.location = centre + Vector((0.0, 0.0, radius * 0.25))
-    scene.collection.objects.link(interior_obj)
+    # Interior fill. A lamp inside does not work: object ray-visibility flags
+    # do not stick on light objects, so the bare lamp renders as a blown-out
+    # disc through the panes. Emissive planes do respect them — they light the
+    # guts and stay invisible to camera and refraction rays alike.
+    _interior_fill(scene, centre, radius, night)
 
     # Key / fill / rim as area lights scaled to the subject.
     rig = (
@@ -388,6 +422,12 @@ def render_views(out_dir: str, views=("hero",), samples=192, resolution=2000,
         spec = VIEWS.get(view)
         if not spec:
             continue
+        hidden = []
+        for prefix in spec.get("hide", ()):
+            for obj in scene.objects:
+                if obj.name.startswith(prefix) and not obj.hide_render:
+                    obj.hide_render = True
+                    hidden.append(obj)
         build_studio(scene, night=spec["night"])
         camera = place_camera(view, scene)
         configure_render(scene, samples=samples, resolution=resolution, engine=engine)
@@ -397,6 +437,8 @@ def render_views(out_dir: str, views=("hero",), samples=192, resolution=2000,
         if os.path.isfile(path):
             written[view] = os.path.abspath(path)
         bpy.data.objects.remove(camera, do_unlink=True)
+        for obj in hidden:
+            obj.hide_render = False
     clear_studio()
     return written
 
