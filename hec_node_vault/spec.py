@@ -130,6 +130,29 @@ MASSES = {
 POWER = {"cpu": 125.0, "gpu": 250.0, "board_and_drives": 60.0, "psu_efficiency": 0.90}
 
 
+def fan_grid(count, fan, width, depth, y_centre=0.0, margin=40.0, gap=8.0):
+    """
+    Positions for `count` fans packed into the available face.
+
+    A row of six 140 mm fans is 888 mm wide and the case is 500 — so they wrap
+    into rows, centred, the way they would actually be laid out on the plate.
+    """
+    pitch = fan + gap
+    cols = max(1, int((width - margin) // pitch))
+    rows = max(1, -(-count // cols))
+    # `y_centre` is the front row; further rows sit behind it, so a wrapped row
+    # never pushes out through the face the fans are mounted on.
+    positions = []
+    placed = 0
+    for r in range(rows):
+        n = min(cols, count - placed)
+        for c in range(n):
+            positions.append((-((n - 1) * pitch) / 2.0 + c * pitch,
+                              y_centre + r * pitch))
+            placed += 1
+    return positions
+
+
 def psu_layout(p):
     """
     How the PSUs pack into the plinth, trying both orientations.
@@ -293,11 +316,11 @@ def build_spec(params=None) -> dict:
     # 7/8 — Top cap: exhaust fans behind a perforated grille.
     cap_z = lv["cap_bottom"] + p["top_cap_height"] / 2.0
     fan = p["fan_size"]
-    for i in range(int(p["exhaust_fans"])):
-        offset = (i - (p["exhaust_fans"] - 1) / 2.0) * (fan + 8.0)
+    exhaust_grid = fan_grid(int(p["exhaust_fans"]), fan, W, D)
+    for i, (fx, fy) in enumerate(exhaust_grid):
         parts.append(_part(7, f"07_Exhaust_Fan_{i + 1}", f"Exhaust fan {i + 1}",
                            "Cooling", "cyl", (fan, fan, 25.0),
-                           (offset, 0, lv["cap_bottom"] + 20.0),
+                           (fx, fy, lv["cap_bottom"] + 20.0),
                            material="fan", axis="z", radius=fan / 2.0,
                            explode_dir=(0, 0, 1), explode_dist=200.0,
                            note="Pulls the chimney; see the airflow warning."))
@@ -310,11 +333,12 @@ def build_spec(params=None) -> dict:
                        material="dark", explode_dir=(0, 0, 1), explode_dist=250.0))
 
     # 9 — Intake fans in the plinth.
-    for i in range(int(p["intake_fans"])):
-        offset = (i - (p["intake_fans"] - 1) / 2.0) * (fan + 30.0)
+    intake_grid = fan_grid(int(p["intake_fans"]), fan, W, D,
+                           y_centre=-hy + fan / 2 + 40.0)
+    for i, (fx, fy) in enumerate(intake_grid):
         parts.append(_part(9, f"09_Intake_Fan_{i + 1}", f"Intake fan {i + 1}",
                            "Cooling", "cyl", (fan, fan, 25.0),
-                           (offset, -hy + 45.0, lv["chassis_base"] + p["plinth_height"] - 25.0),
+                           (fx, fy, lv["chassis_base"] + p["plinth_height"] - 25.0),
                            material="fan", axis="z", radius=fan / 2.0,
                            explode_dir=(0, -0.4, -1), explode_dist=220.0))
 
@@ -342,8 +366,8 @@ def build_spec(params=None) -> dict:
 
     # 13 — Cable looms dressed down the tray.
     parts.append(_part(13, "13_Cable_Loom", "Cable looms", "Electronics", "box",
-                       (60.0, 40.0, lv["glazed_top"] - lv["plinth_top"] - 40.0),
-                       (0, tray_y + p["tray_depth"] / 2 + 25.0,
+                       (60.0, 36.0, lv["glazed_top"] - lv["plinth_top"] - 40.0),
+                       (0, hy - 26.0,
                         lv["plinth_top"] + (lv["glazed_top"] - lv["plinth_top"]) / 2),
                        material="black", explode_dir=(0, 1, 0), explode_dist=140.0,
                        note="Dressed down the rear face of the tray."))
@@ -360,7 +384,7 @@ def build_spec(params=None) -> dict:
                                note="75 mm lockable casters; photo 14."))
 
     parts.extend(printed_parts(p, lv, tiers, board_y, tray_y))
-    return {
+    result = {
         "params": p,
         "levels": lv,
         "tiers": tiers,
@@ -368,6 +392,9 @@ def build_spec(params=None) -> dict:
         "warnings": validate(p),
         "totals": totals(p, parts),
     }
+    for problem in check_envelope(result):
+        result["warnings"].append({"severity": "major", "topic": "fit", "text": problem})
+    return result
 
 
 # --- 3D-printed parts ---------------------------------------------------------
@@ -457,21 +484,21 @@ def printed_parts(p, lv, tiers, board_y, tray_y) -> list:
 
     # P05 — fan shrouds, one per fan, ducting the fan to its grille.
     fan = p["fan_size"]
-    for i in range(int(p["exhaust_fans"])):
-        offset = (i - (p["exhaust_fans"] - 1) / 2.0) * (fan + 8.0)
+    for i, (fx, fy) in enumerate(fan_grid(int(p["exhaust_fans"]), fan, W, D)):
         out.append(_part(105, f"P05_Fan_Shroud_Ex_{i + 1}", f"Exhaust fan shroud {i + 1}",
                          "Printed", "box", (fan + 10.0, fan + 10.0, 28.0),
-                         (offset, 0, lv["cap_bottom"] + 45.0),
+                         (fx, fy, lv["cap_bottom"] + 45.0),
                          printed=True, material="printed", family="Fan shroud",
                          explode_dir=(0, 0, 1), explode_dist=240.0,
                          print_profile=_profile("PETG", 0.28, 3, 20, False,
                                                 "Seals fan to grille so air is not "
                                                 "recirculated around the frame.")))
-    for i in range(int(p["intake_fans"])):
-        offset = (i - (p["intake_fans"] - 1) / 2.0) * (fan + 30.0)
+    intake_grid = fan_grid(int(p["intake_fans"]), fan, W, D,
+                           y_centre=-hy + fan / 2 + 40.0)
+    for i, (fx, fy) in enumerate(intake_grid):
         out.append(_part(105, f"P05_Fan_Shroud_In_{i + 1}", f"Intake fan shroud {i + 1}",
                          "Printed", "box", (fan + 10.0, fan + 10.0, 28.0),
-                         (offset, -hy + 45.0, lv["chassis_base"] + p["plinth_height"] - 55.0),
+                         (fx, fy, lv["chassis_base"] + p["plinth_height"] - 55.0),
                          printed=True, material="printed", family="Fan shroud",
                          explode_dir=(0, -0.5, -1), explode_dist=240.0,
                          print_profile=_profile("PETG", 0.28, 3, 20, False,
@@ -502,8 +529,8 @@ def printed_parts(p, lv, tiers, board_y, tray_y) -> list:
     clip_rows = [lv["glazed_bottom"] + 60.0, lv["glazed_bottom"] + lv["glazed_height"] / 2,
                  lv["glazed_top"] - 60.0]
     for ri, z in enumerate(clip_rows, start=1):
-        for label, x, y in (("F", 0.0, -hy + 12.0), ("B", 0.0, hy - 12.0),
-                            ("L", -hx + 12.0, 0.0), ("R", hx - 12.0, 0.0)):
+        for label, x, y in (("F", 0.0, -hy + 25.0), ("B", 0.0, hy - 25.0),
+                            ("L", -hx + 25.0, 0.0), ("R", hx - 25.0, 0.0)):
             out.append(_part(107, f"P07_Glass_Clip_{label}{ri}", f"Glass edge clip {label}{ri}",
                              "Printed", "box", (45.0, 45.0, 18.0), (x, y, z),
                              printed=True, material="printed", family="Glass edge clip",
@@ -540,7 +567,7 @@ def printed_parts(p, lv, tiers, board_y, tray_y) -> list:
                                            / max(1, comb_count - 1))
         out.append(_part(109, f"P09_Cable_Comb_{i + 1}", f"Cable comb {i + 1}",
                          "Printed", "box", (90.0, 22.0, 14.0),
-                         (0, tray_y + p["tray_depth"] / 2 + 12.0, z),
+                         (0, hy - 20.0, z),
                          printed=True, material="printed", family="Cable comb",
                          explode_dir=(0, 1, 0), explode_dist=160.0,
                          print_profile=_profile("PETG", 0.2, 3, 20, False,
@@ -618,11 +645,10 @@ def printed_parts(p, lv, tiers, board_y, tray_y) -> list:
                                                     draft=True)))
 
     # P14 — intake dust filter frames.
-    for i in range(int(p["intake_fans"])):
-        offset = (i - (p["intake_fans"] - 1) / 2.0) * (fan + 30.0)
+    for i, (fx, fy) in enumerate(intake_grid):
         out.append(_part(114, f"P14_Filter_Frame_{i + 1}", f"Dust filter frame {i + 1}",
                          "Printed", "box", (fan + 20.0, fan + 20.0, 12.0),
-                         (offset, -hy + 30.0, lv["chassis_base"] + 30.0),
+                         (fx, fy, lv["chassis_base"] + 30.0),
                          printed=True, material="printed", family="Dust filter frame",
                          explode_dir=(0, -1, -0.3), explode_dist=260.0,
                          print_profile=_profile("PETG", 0.24, 3, 20, False,
@@ -752,6 +778,38 @@ def validate(params=None) -> list:
                      f"Widen the base, add outrigger feet, or plan to strap it to a wall.")})
 
     return warnings
+
+
+OUTBOARD_PREFIXES = ("11_", "12_", "P10_", "P13_")  # display, arm, bezel — by design
+
+
+def check_envelope(spec: dict) -> list:
+    """
+    Parts that stick out through the case, which a render shows immediately and
+    a bounding-box check does not.
+
+    The display, its arm, the VESA plate and the bezel are cantilevered in front
+    on purpose; everything else has to live inside the envelope.
+    """
+    p = spec["params"]
+    limits = {0: p["width"] / 2, 1: p["depth"] / 2}
+    problems = []
+    for part in spec["parts"]:
+        if part["key"].startswith(OUTBOARD_PREFIXES):
+            continue
+        for axis, limit in limits.items():
+            low = part["pos"][axis] - part["size"][axis] / 2
+            high = part["pos"][axis] + part["size"][axis] / 2
+            if low < -limit - 0.5 or high > limit + 0.5:
+                over = max(-limit - low, high - limit)
+                problems.append(f"{part['key']} protrudes {over:.0f} mm past the "
+                                f"{'width' if axis == 0 else 'depth'} envelope")
+                break
+        top = part["pos"][2] + part["size"][2] / 2
+        if top > p["height"] + 0.5:
+            problems.append(f"{part['key']} stands {top - p['height']:.0f} mm proud "
+                            f"of the top")
+    return problems
 
 
 def totals(params=None, parts=None) -> dict:

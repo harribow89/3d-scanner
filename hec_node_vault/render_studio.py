@@ -124,7 +124,9 @@ def _perforate(mat, bsdf, pitch=6.0, hole=0.42):
 def upgrade_materials():
     """Replace the flat block-model materials with product-shot shading."""
     recipes = {
-        "HEC_glass": {"base": (0.055, 0.075, 0.085, 1.0), "rough": 0.02,
+        # Tint is the transmission colour, so it darkens everything seen
+        # through it: a near-black base renders as a black box, not glass.
+        "HEC_glass": {"base": (0.58, 0.63, 0.65, 1.0), "rough": 0.02,
                       "metal": 0.0, "transmission": 1.0, "ior": 1.52},
         "HEC_alu": {"base": (0.72, 0.74, 0.78, 1.0), "rough": 0.22, "metal": 1.0,
                     "bump": (900.0, 0.06)},
@@ -132,17 +134,17 @@ def upgrade_materials():
                       "bump": (600.0, 0.08)},
         "HEC_tray": {"base": (0.62, 0.64, 0.67, 1.0), "rough": 0.34, "metal": 1.0,
                      "bump": (400.0, 0.14)},
-        "HEC_dark": {"base": (0.035, 0.038, 0.042, 1.0), "rough": 0.52, "metal": 0.0,
+        "HEC_dark": {"base": (0.055, 0.059, 0.065, 1.0), "rough": 0.5, "metal": 0.1,
                      "bump": (2200.0, 0.10)},
-        "HEC_black": {"base": (0.02, 0.021, 0.024, 1.0), "rough": 0.45, "metal": 0.15,
+        "HEC_black": {"base": (0.032, 0.034, 0.038, 1.0), "rough": 0.45, "metal": 0.15,
                       "bump": (1600.0, 0.06)},
         "HEC_fan": {"base": (0.016, 0.017, 0.02, 1.0), "rough": 0.55, "metal": 0.0},
         "HEC_pcb": {"base": (0.02, 0.14, 0.07, 1.0), "rough": 0.42, "metal": 0.1},
         "HEC_printed": {"base": (0.40, 0.42, 0.46, 1.0), "rough": 0.58, "metal": 0.0,
                         "layers": 0.24},
-        "HEC_diffuser": {"base": (0.9, 0.94, 0.96, 1.0), "rough": 0.38, "metal": 0.0,
-                         "transmission": 0.85, "ior": 1.46},
-        "HEC_led": {"base": (0.25, 0.85, 0.80, 1.0), "emission": 22.0},
+        "HEC_diffuser": {"base": (0.92, 0.95, 0.97, 1.0), "rough": 0.5, "metal": 0.0,
+                         "transmission": 0.92, "ior": 1.46},
+        "HEC_led": {"base": (0.25, 0.85, 0.80, 1.0), "emission": 45.0},
     }
 
     for name, recipe in recipes.items():
@@ -256,7 +258,16 @@ def build_studio(scene=None, night=False):
     background = world.node_tree.nodes.get("Background")
     if background:
         background.inputs["Color"].default_value = (0.012, 0.014, 0.018, 1.0)
-        background.inputs["Strength"].default_value = 0.06 if night else 0.35
+        background.inputs["Strength"].default_value = 0.08 if night else 0.55
+
+    # Interior fill: without it the guts read as a black box through the glass,
+    # which is exactly what the first render did.
+    interior = bpy.data.lights.new(STUDIO_PREFIX + "Interior", type='POINT')
+    interior.energy = (120.0 if night else 350.0) * max(radius, 0.15) ** 2
+    interior.shadow_soft_size = radius * 0.35
+    interior_obj = bpy.data.objects.new(STUDIO_PREFIX + "Interior", interior)
+    interior_obj.location = centre + Vector((0.0, 0.0, radius * 0.25))
+    scene.collection.objects.link(interior_obj)
 
     # Key / fill / rim as area lights scaled to the subject.
     rig = (

@@ -106,4 +106,5 @@ HEC-PC-002 Rev A · 400 x 400 x 840 mm · 5 nodes · mATX boards · SFX PSUs
 - **BLOCKER** (electrical): ~2417 W is about 10.5 A at 230 V — at or over a standard 10 A outlet circuit, before anything else on it. Needs its own circuit (or two), and inrush from five PSUs starting together will nuisance-trip a Type B RCBO; specify Type C.
 - Note (weight): Estimated all-up mass ~52 kg (15 kg of that is glass). That is ~13 kg per caster — specify 75 mm casters rated 50 kg+ each, and lock them: the centre of mass is high.
 - **Major** (stability): 840 mm tall on a 400 mm base is a 2.1:1 ratio with the mass up high. Widen the base, add outrigger feet, or plan to strap it to a wall.
+- **Major** (fit): 05_GPU_5 stands 4 mm proud of the top
 
