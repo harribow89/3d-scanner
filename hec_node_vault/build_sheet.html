@@ -1,0 +1,789 @@
+<title>Node Vault Build Sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#e9edef; --surface:#ffffff; --surface-2:#f3f6f7; --ink:#11171b;
+  --ink-2:#41525c; --muted:#697c86; --rule:#c6d1d7; --rule-2:#dde5e9;
+  --accent:#c26a12; --accent-ink:#8e4c07; --accent-wash:#fbeedd;
+  --steel:#256b7d; --steel-wash:#e3eef1;
+  --warn:#a8301c; --warn-wash:#fae7e3; --ok:#26694a; --ok-wash:#e2f0e9;
+  --shadow:0 1px 2px rgba(17,23,27,.07),0 8px 24px -16px rgba(17,23,27,.28);
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+  --cond:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0c1013; --surface:#141a1f; --surface-2:#1b232a; --ink:#e6ecef;
+    --ink-2:#b3c2ca; --muted:#8497a1; --rule:#28333b; --rule-2:#1f282f;
+    --accent:#e0913f; --accent-ink:#f0b271; --accent-wash:#2a1e12;
+    --steel:#5aa8bd; --steel-wash:#152730;
+    --warn:#e2705a; --warn-wash:#2c1611; --ok:#5fb98c; --ok-wash:#12241c;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -18px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0c1013; --surface:#141a1f; --surface-2:#1b232a; --ink:#e6ecef;
+  --ink-2:#b3c2ca; --muted:#8497a1; --rule:#28333b; --rule-2:#1f282f;
+  --accent:#e0913f; --accent-ink:#f0b271; --accent-wash:#2a1e12;
+  --steel:#5aa8bd; --steel-wash:#152730;
+  --warn:#e2705a; --warn-wash:#2c1611; --ok:#5fb98c; --ok-wash:#12241c;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px -18px rgba(0,0,0,.8);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:var(--cond);margin:0;text-wrap:balance;letter-spacing:-.01em}
+a{color:var(--steel)}
+.wrap{max-width:1240px;margin:0 auto;padding:0 20px}
+
+/* ---------- title block: a drawing sheet header ---------- */
+.sheet{background:var(--surface);border-bottom:1px solid var(--rule)}
+.sheet-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;
+  align-items:end;padding:22px 0 16px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--muted)}
+h1{font-size:clamp(28px,4.4vw,42px);font-weight:700;line-height:1.02;margin:6px 0 4px}
+.subtitle{color:var(--ink-2);max-width:62ch;margin:0}
+.stamp{font-family:var(--mono);font-size:12px;color:var(--ink-2);text-align:right;
+  border-left:1px solid var(--rule);padding-left:20px;white-space:nowrap}
+.stamp b{display:block;font-size:15px;color:var(--ink);font-weight:600}
+.stats{display:flex;flex-wrap:wrap;gap:0;border-top:1px solid var(--rule-2);
+  margin-top:4px}
+.stat{padding:12px 24px 14px 0;margin-right:24px;border-right:1px solid var(--rule-2)}
+.stat:last-child{border-right:0}
+.stat .n{font-family:var(--mono);font-size:21px;font-weight:600;
+  font-variant-numeric:tabular-nums;line-height:1.1}
+.stat .l{font-size:12px;color:var(--muted);letter-spacing:.02em}
+.stat.print .n{color:var(--accent)} .stat.cut .n{color:var(--steel)}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--rule);background:var(--surface);
+  position:sticky;top:0;z-index:20}
+.tabs .wrap{display:flex;gap:2px}
+.tab{appearance:none;background:none;border:0;border-bottom:2px solid transparent;
+  font:600 13px/1 var(--cond);letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);padding:14px 16px;cursor:pointer}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tab:hover{color:var(--ink)}
+.tab:focus-visible{outline:2px solid var(--steel);outline-offset:-2px}
+
+/* ---------- build layout ---------- */
+.build{display:grid;grid-template-columns:290px minmax(0,1fr);gap:24px;
+  align-items:start;padding:24px 0 56px}
+@media (max-width:940px){.build{grid-template-columns:1fr}}
+
+.rail{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  overflow:hidden;position:sticky;top:49px}
+@media (max-width:940px){.rail{position:static}}
+.rail-head{display:flex;justify-content:space-between;align-items:baseline;
+  padding:12px 14px;border-bottom:1px solid var(--rule-2)}
+.rail-head h2{font-size:14px;letter-spacing:.06em;text-transform:uppercase}
+.rail-head .count{font-family:var(--mono);font-size:12px;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.bar{height:3px;background:var(--rule-2)}
+.bar i{display:block;height:100%;background:var(--ok);transition:width .3s ease}
+.rail-list{max-height:min(62vh,720px);overflow-y:auto}
+@media (max-width:940px){.rail-list{max-height:none}}
+.rail-item{display:grid;grid-template-columns:auto 26px minmax(0,1fr);gap:8px;
+  align-items:center;width:100%;text-align:left;background:none;border:0;
+  border-bottom:1px solid var(--rule-2);padding:9px 12px;cursor:pointer;color:inherit;
+  font:inherit}
+.rail-item:hover{background:var(--surface-2)}
+.rail-item[aria-current="true"]{background:var(--accent-wash)}
+.rail-item[aria-current="true"] .rn{color:var(--accent-ink)}
+.rail-item:focus-visible{outline:2px solid var(--steel);outline-offset:-2px}
+.tick{width:17px;height:17px;border:1.5px solid var(--rule);border-radius:2px;
+  background:var(--surface);display:grid;place-items:center;cursor:pointer;padding:0}
+.tick[aria-pressed="true"]{background:var(--ok);border-color:var(--ok)}
+.tick svg{width:11px;height:11px;stroke:#fff;stroke-width:2.6;fill:none;
+  visibility:hidden}
+.tick[aria-pressed="true"] svg{visibility:visible}
+.rn{font-family:var(--mono);font-size:12px;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.rt{font-family:var(--cond);font-size:14px;font-weight:600;line-height:1.25}
+.rail-item.done .rt{color:var(--muted);text-decoration:line-through;
+  text-decoration-color:var(--rule)}
+
+.stage{display:grid;gap:18px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:3px}
+.step-head{display:flex;gap:16px;align-items:flex-start;padding:20px 22px 16px;
+  border-bottom:1px solid var(--rule-2)}
+.step-no{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--accent-ink);
+  background:var(--accent-wash);border:1px solid var(--accent);border-radius:2px;
+  padding:5px 9px;white-space:nowrap}
+.step-head h2{font-size:clamp(20px,2.6vw,27px);font-weight:700;line-height:1.12}
+.step-meta{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:4px}
+.step-body{padding:18px 22px 22px;display:grid;gap:18px}
+.dolist{margin:0;padding:0;list-style:none;display:grid;gap:9px;max-width:66ch}
+.dolist li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;
+  align-items:baseline}
+.dolist li::before{content:"";width:6px;height:6px;background:var(--steel);
+  border-radius:1px;transform:translateY(-2px)}
+.note{border-left:3px solid var(--warn);background:var(--warn-wash);padding:12px 14px;
+  border-radius:0 2px 2px 0;font-size:14px;color:var(--ink)}
+.note b{font-family:var(--cond);letter-spacing:.04em;text-transform:uppercase;
+  font-size:11px;color:var(--warn);display:block;margin-bottom:3px}
+.kit{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+.kit section{border:1px solid var(--rule-2);border-radius:2px;padding:11px 13px;
+  background:var(--surface-2)}
+.kit h3{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);
+  margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-family:var(--mono);font-size:11.5px;padding:3px 7px;border-radius:2px;
+  border:1px solid var(--rule);background:var(--surface);color:var(--ink-2);
+  white-space:nowrap}
+.chip.p{border-color:var(--accent);color:var(--accent-ink);background:var(--accent-wash)}
+.chip.c{border-color:var(--steel);color:var(--steel);background:var(--steel-wash)}
+.chip.t{border-style:dashed}
+.nav{display:flex;gap:10px;padding:0 22px 20px}
+.btn{appearance:none;font:600 13px/1 var(--cond);letter-spacing:.05em;
+  text-transform:uppercase;padding:11px 15px;border-radius:2px;cursor:pointer;
+  border:1px solid var(--rule);background:var(--surface);color:var(--ink)}
+.btn:hover{border-color:var(--ink-2)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn:focus-visible{outline:2px solid var(--steel);outline-offset:2px}
+
+/* ---------- elevation ---------- */
+.elev{padding:0}
+.elev-head{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  padding:12px 16px;border-bottom:1px solid var(--rule-2);flex-wrap:wrap}
+.elev-head h3{font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--muted)}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;
+  color:var(--muted)}
+.legend i{display:inline-block;width:9px;height:9px;margin-right:4px;border-radius:1px;
+  vertical-align:baseline}
+.elev-body{padding:8px 12px 14px;overflow-x:auto}
+svg.drawing{display:block;width:100%;height:auto;max-height:60vh}
+.cap{font-family:var(--mono);font-size:11px;color:var(--muted);padding:0 16px 14px}
+
+/* ---------- tables ---------- */
+.panel{padding:24px 0 56px;display:grid;gap:22px}
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;
+  background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+caption{text-align:left;font-family:var(--cond);font-size:15px;font-weight:600;
+  padding:12px 14px;border-bottom:1px solid var(--rule-2)}
+caption span{display:block;font-family:var(--sans);font-size:12.5px;font-weight:400;
+  color:var(--muted);margin-top:2px}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--rule-2);
+  vertical-align:top}
+th{font-family:var(--cond);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums}
+td.ref{font-family:var(--mono);font-size:12px;color:var(--accent-ink);white-space:nowrap}
+td.dim{font-family:var(--mono);font-size:12px;white-space:nowrap;color:var(--ink-2)}
+.badge{font-family:var(--mono);font-size:10.5px;padding:2px 6px;border-radius:2px;
+  border:1px solid currentColor;white-space:nowrap}
+.badge.ready{color:var(--ok)} .badge.draft{color:var(--warn)}
+.hint{color:var(--muted);font-size:13px;max-width:70ch}
+
+/* ---------- checks ---------- */
+.check{display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;padding:14px 16px;
+  border:1px solid var(--rule);border-left-width:3px;border-radius:2px;
+  background:var(--surface)}
+.check.blocker{border-left-color:var(--warn)}
+.check.major{border-left-color:var(--accent)}
+.check.info{border-left-color:var(--steel)}
+.check .sev{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;padding-top:3px;white-space:nowrap}
+.check.blocker .sev{color:var(--warn)} .check.major .sev{color:var(--accent-ink)}
+.check.info .sev{color:var(--steel)}
+.check .topic{font-family:var(--cond);font-weight:600;text-transform:capitalize}
+[hidden]{display:none!important}
+.foot{border-top:1px solid var(--rule);padding:20px 0 40px;color:var(--muted);
+  font-size:12.5px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media print{
+  .tabs,.rail,.nav,.elev-head .legend{display:none}
+  body{background:#fff;color:#000;font-size:11pt}
+  .build{grid-template-columns:1fr}
+  .card{break-inside:avoid;border-color:#999}
+}
+</style>
+
+<header class="sheet">
+  <div class="wrap">
+    <div class="sheet-grid">
+      <div>
+        <div class="eyebrow">Drawing HEC-PC-002 · Rev A · preset “resolved”</div>
+        <h1>HEC Node Vault</h1>
+        <p class="subtitle">Build sheet for the four-node glass vault: every piece that
+          gets printed or cut, and the order to put them together in. Generated from
+          <code>spec.py</code>, so the numbers here and the Blender model are the same
+          numbers.</p>
+      </div>
+      <div class="stamp">
+        <b id="envelope">500 × 500 × 1145 mm</b>
+        4 nodes · 180 mm pitch<br>
+        mATX boards · SFX PSUs<br>
+        6 × 140 mm exhaust
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="n" id="s-total">146</div><div class="l">fabricated pieces</div></div>
+      <div class="stat print"><div class="n" id="s-print">103</div><div class="l">3D printed</div></div>
+      <div class="stat cut"><div class="n" id="s-cut">43</div><div class="l">cut</div></div>
+      <div class="stat"><div class="n" id="s-steps">15</div><div class="l">build steps</div></div>
+      <div class="stat"><div class="n" id="s-hours">30 h</div><div class="l">est. build time</div></div>
+      <div class="stat"><div class="n" id="s-filament">9.1 kg</div><div class="l">filament (upper bound)</div></div>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs" aria-label="Sections">
+  <div class="wrap">
+    <button class="tab" id="tab-build" aria-selected="true" aria-controls="panel-build">Build sequence</button>
+    <button class="tab" id="tab-fab" aria-selected="false" aria-controls="panel-fab">Fabrication</button>
+    <button class="tab" id="tab-checks" aria-selected="false" aria-controls="panel-checks">Checks</button>
+  </div>
+</nav>
+
+<main class="wrap">
+  <!-- ---------------- build sequence ---------------- -->
+  <section id="panel-build" class="build" aria-labelledby="tab-build">
+    <aside class="rail">
+      <div class="rail-head">
+        <h2>Sequence</h2>
+        <span class="count" id="progress-count">0 / 15 done</span>
+      </div>
+      <div class="bar"><i id="progress-bar" style="width:0%"></i></div>
+      <div class="rail-list" id="rail"></div>
+    </aside>
+
+    <div class="stage">
+      <article class="card" id="step-card">
+        <div class="step-head">
+          <span class="step-no" id="step-no">STEP 01</span>
+          <div>
+            <h2 id="step-title">—</h2>
+            <div class="step-meta" id="step-meta">—</div>
+          </div>
+        </div>
+        <div class="step-body">
+          <ul class="dolist" id="step-detail"></ul>
+          <div class="note" id="step-warning" hidden><b>Watch out</b><span id="step-warning-text"></span></div>
+          <div class="kit" id="step-kit"></div>
+        </div>
+        <div class="nav">
+          <button class="btn" id="prev">← Previous</button>
+          <button class="btn primary" id="next">Next step →</button>
+          <button class="btn" id="mark">Mark done</button>
+        </div>
+      </article>
+
+      <figure class="card elev" style="margin:0">
+        <div class="elev-head">
+          <h3>Front elevation — installed at this step</h3>
+          <div class="legend">
+            <span><i style="background:var(--accent)"></i>printed</span>
+            <span><i style="background:var(--steel)"></i>frame &amp; cooling</span>
+            <span><i style="background:var(--ink-2)"></i>electronics</span>
+            <span><i style="background:var(--rule)"></i>not yet fitted</span>
+          </div>
+        </div>
+        <div class="elev-body"><svg class="drawing" id="elevation" role="img"
+          aria-label="Front elevation of the vault showing which parts are installed at the current step"></svg></div>
+        <figcaption class="cap" id="elev-cap">—</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ---------------- fabrication ---------------- -->
+  <section id="panel-fab" class="panel" aria-labelledby="tab-fab" hidden>
+    <p class="hint">Everything that gets made. Order the glass first — it is the
+      long-lead, non-returnable item, and tempered panes cannot be drilled or cut
+      after toughening, so every hole has to be on the order.</p>
+    <div id="fab-tables"></div>
+  </section>
+
+  <!-- ---------------- checks ---------------- -->
+  <section id="panel-checks" class="panel" aria-labelledby="tab-checks" hidden>
+    <p class="hint">First-principles checks the model runs on its own parameters.
+      These are estimates from stated loads and standard figures, not measurements —
+      but each one flags something that costs money or safety to discover late.</p>
+    <div id="checks" style="display:grid;gap:10px"></div>
+  </section>
+
+  <footer class="foot">
+    Generated from <code>hec_node_vault/spec.py</code> + <code>fabrication.py</code>
+    (branch <code>claude/pc-case-snapdragon-project-2298vj</code>). Sizes marked in the
+    model trace back to the design brief, not to measured hardware — measure the tray,
+    boards, cards and PSUs before anything is cut. <span id="sync-note"></span>
+  </footer>
+</main>
+
+<script id="vault-data" type="application/json">{"drawing":"HEC-PC-002 Rev A","params":{"width":500.0,"depth":500.0,"height":1145.0,"node_count":4,"tier_pitch":180.0,"board":"mATX","psu_form":"SFX","fan_size":140.0,"exhaust_fans":6,"intake_fans":4,"glass_thickness":6.0,"printer_bed":256.0},"levels":{"floor":0.0,"chassis_base":75.0,"plinth_top":275.0,"glazed_bottom":275.0,"glazed_top":1055.0,"cap_bottom":1055.0,"top":1145.0,"glazed_height":780.0},"tiers":[355.0,535.0,715.0,895.0],"parts":[{"key":"01_Glass_Front","name":"Glass panel \u2014 front","group":"Glass","no":1,"printed":false,"size":[500.0,6.0,780.0],"pos":[0,-247.0,665.0],"family":"","material":"glass","profile":{}},{"key":"01_Glass_Rear","name":"Glass panel \u2014 rear","group":"Glass","no":1,"printed":false,"size":[500.0,6.0,780.0],"pos":[0,247.0,665.0],"family":"","material":"glass","profile":{}},{"key":"01_Glass_Left","name":"Glass panel \u2014 left","group":"Glass","no":1,"printed":false,"size":[6.0,500.0,780.0],"pos":[-247.0,0,665.0],"family":"","material":"glass","profile":{}},{"key":"01_Glass_Right","name":"Glass panel \u2014 right","group":"Glass","no":1,"printed":false,"size":[6.0,500.0,780.0],"pos":[247.0,0,665.0],"family":"","material":"glass","profile":{}},{"key":"01_Glass_Top","name":"Glass panel \u2014 top","group":"Glass","no":1,"printed":false,"size":[500.0,500.0,6.0],"pos":[0,0,1052.0],"family":"","material":"glass","profile":{}},{"key":"02_Plinth_Shell","name":"Base plinth","group":"Frame","no":2,"printed":false,"size":[500.0,500.0,200.0],"pos":[0,0,175.0],"family":"","material":"dark","profile":{}},{"key":"03_Tray_Spine","name":"Cable-tray spine","group":"Frame","no":3,"printed":false,"size":[150.0,60.0,780.0],"pos":[0,200.0,665.0],"family":"","material":"tray","profile":{}},{"key":"03_Tray_Rung_1","name":"Tray rung 1","group":"Frame","no":3,"printed":false,"size":[150.0,60.0,20.0],"pos":[0,200.0,345.0],"family":"","material":"tray","profile":{}},{"key":"03_Tray_Rung_2","name":"Tray rung 2","group":"Frame","no":3,"printed":false,"size":[150.0,60.0,20.0],"pos":[0,200.0,525.0],"family":"","material":"tray","profile":{}},{"key":"03_Tray_Rung_3","name":"Tray rung 3","group":"Frame","no":3,"printed":false,"size":[150.0,60.0,20.0],"pos":[0,200.0,705.0],"family":"","material":"tray","profile":{}},{"key":"03_Tray_Rung_4","name":"Tray rung 4","group":"Frame","no":3,"printed":false,"size":[150.0,60.0,20.0],"pos":[0,200.0,885.0],"family":"","material":"tray","profile":{}},{"key":"04_Motherboard_1","name":"Motherboard 1 (mATX)","group":"Electronics","no":4,"printed":false,"size":[244.0,244.0,1.6],"pos":[0,38.0,364.8],"family":"","material":"pcb","profile":{}},{"key":"05_GPU_1","name":"Graphics card 1","group":"Electronics","no":5,"printed":false,"size":[300.0,40.0,120.0],"pos":[0,-34.0,444.0],"family":"","material":"black","profile":{}},{"key":"04_Motherboard_2","name":"Motherboard 2 (mATX)","group":"Electronics","no":4,"printed":false,"size":[244.0,244.0,1.6],"pos":[0,38.0,544.8],"family":"","material":"pcb","profile":{}},{"key":"05_GPU_2","name":"Graphics card 2","group":"Electronics","no":5,"printed":false,"size":[300.0,40.0,120.0],"pos":[0,-34.0,624.0],"family":"","material":"black","profile":{}},{"key":"04_Motherboard_3","name":"Motherboard 3 (mATX)","group":"Electronics","no":4,"printed":false,"size":[244.0,244.0,1.6],"pos":[0,38.0,724.8],"family":"","material":"pcb","profile":{}},{"key":"05_GPU_3","name":"Graphics card 3","group":"Electronics","no":5,"printed":false,"size":[300.0,40.0,120.0],"pos":[0,-34.0,804.0],"family":"","material":"black","profile":{}},{"key":"04_Motherboard_4","name":"Motherboard 4 (mATX)","group":"Electronics","no":4,"printed":false,"size":[244.0,244.0,1.6],"pos":[0,38.0,904.8],"family":"","material":"pcb","profile":{}},{"key":"05_GPU_4","name":"Graphics card 4","group":"Electronics","no":5,"printed":false,"size":[300.0,40.0,120.0],"pos":[0,-34.0,984.0],"family":"","material":"black","profile":{}},{"key":"06_PSU_1","name":"Power supply 1 (SFX, rotated)","group":"Electronics","no":6,"printed":false,"size":[100.0,125.0,63.5],"pos":[-172.5,-147.5,126.75],"family":"","material":"black","profile":{}},{"key":"06_PSU_2","name":"Power supply 2 (SFX, rotated)","group":"Electronics","no":6,"printed":false,"size":[100.0,125.0,63.5],"pos":[-57.5,-147.5,126.75],"family":"","material":"black","profile":{}},{"key":"06_PSU_3","name":"Power supply 3 (SFX, rotated)","group":"Electronics","no":6,"printed":false,"size":[100.0,125.0,63.5],"pos":[57.5,-147.5,126.75],"family":"","material":"black","profile":{}},{"key":"06_PSU_4","name":"Power supply 4 (SFX, rotated)","group":"Electronics","no":6,"printed":false,"size":[100.0,125.0,63.5],"pos":[172.5,-147.5,126.75],"family":"","material":"black","profile":{}},{"key":"07_Exhaust_Fan_1","name":"Exhaust fan 1","group":"Cooling","no":7,"printed":false,"size":[140.0,140.0,25.0],"pos":[-370.0,0,1075.0],"family":"","material":"fan","profile":{}},{"key":"07_Exhaust_Fan_2","name":"Exhaust fan 2","group":"Cooling","no":7,"printed":false,"size":[140.0,140.0,25.0],"pos":[-222.0,0,1075.0],"family":"","material":"fan","profile":{}},{"key":"07_Exhaust_Fan_3","name":"Exhaust fan 3","group":"Cooling","no":7,"printed":false,"size":[140.0,140.0,25.0],"pos":[-74.0,0,1075.0],"family":"","material":"fan","profile":{}},{"key":"07_Exhaust_Fan_4","name":"Exhaust fan 4","group":"Cooling","no":7,"printed":false,"size":[140.0,140.0,25.0],"pos":[74.0,0,1075.0],"family":"","material":"fan","profile":{}},{"key":"07_Exhaust_Fan_5","name":"Exhaust fan 5","group":"Cooling","no":7,"printed":false,"size":[140.0,140.0,25.0],"pos":[222.0,0,1075.0],"family":"","material":"fan","profile":{}},{"key":"07_Exhaust_Fan_6","name":"Exhaust fan 6","group":"Cooling","no":7,"printed":false,"size":[140.0,140.0,25.0],"pos":[370.0,0,1075.0],"family":"","material":"fan","profile":{}},{"key":"08_Top_Vent_Grille","name":"Top vent grille","group":"Cooling","no":8,"printed":false,"size":[480.0,480.0,8.0],"pos":[0,0,1133.0],"family":"","material":"alu","profile":{}},{"key":"08_Top_Cap_Shell","name":"Top cap shell","group":"Frame","no":8,"printed":false,"size":[500.0,500.0,90.0],"pos":[0,0,1100.0],"family":"","material":"dark","profile":{}},{"key":"09_Intake_Fan_1","name":"Intake fan 1","group":"Cooling","no":9,"printed":false,"size":[140.0,140.0,25.0],"pos":[-255.0,-205.0,250.0],"family":"","material":"fan","profile":{}},{"key":"09_Intake_Fan_2","name":"Intake fan 2","group":"Cooling","no":9,"printed":false,"size":[140.0,140.0,25.0],"pos":[-85.0,-205.0,250.0],"family":"","material":"fan","profile":{}},{"key":"09_Intake_Fan_3","name":"Intake fan 3","group":"Cooling","no":9,"printed":false,"size":[140.0,140.0,25.0],"pos":[85.0,-205.0,250.0],"family":"","material":"fan","profile":{}},{"key":"09_Intake_Fan_4","name":"Intake fan 4","group":"Cooling","no":9,"printed":false,"size":[140.0,140.0,25.0],"pos":[255.0,-205.0,250.0],"family":"","material":"fan","profile":{}},{"key":"10_LED_Strip_LF","name":"Edge lighting \u2014 LF","group":"Lighting","no":10,"printed":false,"size":[10.0,10.0,760.0],"pos":[-237.5,-237.5,665.0],"family":"","material":"led","profile":{}},{"key":"10_LED_Strip_LB","name":"Edge lighting \u2014 LB","group":"Lighting","no":10,"printed":false,"size":[10.0,10.0,760.0],"pos":[-237.5,237.5,665.0],"family":"","material":"led","profile":{}},{"key":"10_LED_Strip_RF","name":"Edge lighting \u2014 RF","group":"Lighting","no":10,"printed":false,"size":[10.0,10.0,760.0],"pos":[237.5,-237.5,665.0],"family":"","material":"led","profile":{}},{"key":"10_LED_Strip_RB","name":"Edge lighting \u2014 RB","group":"Lighting","no":10,"printed":false,"size":[10.0,10.0,760.0],"pos":[237.5,237.5,665.0],"family":"","material":"led","profile":{}},{"key":"11_Telemetry_Display","name":"Telemetry display","group":"Electronics","no":11,"printed":false,"size":[520.0,45.0,320.0],"pos":[0,-440.0,1015.0],"family":"","material":"black","profile":{}},{"key":"12_Monitor_Arm","name":"Monitor arm","group":"Frame","no":12,"printed":false,"size":[60.0,260.0,40.0],"pos":[0,-310.0,1065.0],"family":"","material":"alu","profile":{}},{"key":"13_Cable_Loom","name":"Cable looms","group":"Electronics","no":13,"printed":false,"size":[60.0,40.0,740.0],"pos":[0,255.0,665.0],"family":"","material":"black","profile":{}},{"key":"14_Caster_LF","name":"Caster LF","group":"Frame","no":14,"printed":false,"size":[75.0,75.0,75.0],"pos":[-190.0,-190.0,37.5],"family":"","material":"black","profile":{}},{"key":"14_Caster_LB","name":"Caster LB","group":"Frame","no":14,"printed":false,"size":[75.0,75.0,75.0],"pos":[-190.0,190.0,37.5],"family":"","material":"black","profile":{}},{"key":"14_Caster_RF","name":"Caster RF","group":"Frame","no":14,"printed":false,"size":[75.0,75.0,75.0],"pos":[190.0,-190.0,37.5],"family":"","material":"black","profile":{}},{"key":"14_Caster_RB","name":"Caster RB","group":"Frame","no":14,"printed":false,"size":[75.0,75.0,75.0],"pos":[190.0,190.0,37.5],"family":"","material":"black","profile":{}},{"key":"P01_Node_Rail_1L","name":"Node sled rail 1L","group":"Printed","no":101,"printed":true,"size":[40.0,248.0,25.0],"pos":[-102.0,38.0,342.5],"family":"Node sled rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":40,"supports":false,"purpose":"Carries a node on M3 standoffs; clamps to the tray rung.","draft":false}},{"key":"P01_Node_Rail_1R","name":"Node sled rail 1R","group":"Printed","no":101,"printed":true,"size":[40.0,248.0,25.0],"pos":[102.0,38.0,342.5],"family":"Node sled rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":40,"supports":false,"purpose":"Carries a node on M3 standoffs; clamps to the tray rung.","draft":false}},{"key":"P01_Node_Rail_2L","name":"Node sled rail 2L","group":"Printed","no":101,"printed":true,"size":[40.0,248.0,25.0],"pos":[-102.0,38.0,522.5],"family":"Node sled rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":40,"supports":false,"purpose":"Carries a node on M3 standoffs; clamps to the tray rung.","draft":false}},{"key":"P01_Node_Rail_2R","name":"Node sled rail 2R","group":"Printed","no":101,"printed":true,"size":[40.0,248.0,25.0],"pos":[102.0,38.0,522.5],"family":"Node sled rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":40,"supports":false,"purpose":"Carries a node on M3 standoffs; clamps to the tray rung.","draft":false}},{"key":"P01_Node_Rail_3L","name":"Node sled rail 3L","group":"Printed","no":101,"printed":true,"size":[40.0,248.0,25.0],"pos":[-102.0,38.0,702.5],"family":"Node sled rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":40,"supports":false,"purpose":"Carries a node on M3 standoffs; clamps to the tray rung.","draft":false}},{"key":"P01_Node_Rail_3R","name":"Node sled rail 3R","group":"Printed","no":101,"printed":true,"size":[40.0,248.0,25.0],"pos":[102.0,38.0,702.5],"family":"Node sled rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":40,"supports":false,"purpose":"Carries a node on M3 standoffs; clamps to the tray rung.","draft":false}},{"key":"P01_Node_Rail_4L","name":"Node sled rail 4L","group":"Printed","no":101,"printed":true,"size":[40.0,248.0,25.0],"pos":[-102.0,38.0,882.5],"family":"Node sled rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":40,"supports":false,"purpose":"Carries a node on M3 standoffs; clamps to the tray rung.","draft":false}},{"key":"P01_Node_Rail_4R","name":"Node sled rail 4R","group":"Printed","no":101,"printed":true,"size":[40.0,248.0,25.0],"pos":[102.0,38.0,882.5],"family":"Node sled rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":40,"supports":false,"purpose":"Carries a node on M3 standoffs; clamps to the tray rung.","draft":false}},{"key":"P02_Rung_Clamp_1_1","name":"Tray rung clamp 1.1","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[-47.5,192.5,360.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_1_2","name":"Tray rung clamp 1.2","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[47.5,192.5,360.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_1_3","name":"Tray rung clamp 1.3","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[-47.5,207.5,360.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_1_4","name":"Tray rung clamp 1.4","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[47.5,207.5,360.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_2_1","name":"Tray rung clamp 2.1","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[-47.5,192.5,540.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_2_2","name":"Tray rung clamp 2.2","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[47.5,192.5,540.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_2_3","name":"Tray rung clamp 2.3","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[-47.5,207.5,540.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_2_4","name":"Tray rung clamp 2.4","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[47.5,207.5,540.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_3_1","name":"Tray rung clamp 3.1","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[-47.5,192.5,720.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_3_2","name":"Tray rung clamp 3.2","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[47.5,192.5,720.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_3_3","name":"Tray rung clamp 3.3","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[-47.5,207.5,720.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_3_4","name":"Tray rung clamp 3.4","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[47.5,207.5,720.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_4_1","name":"Tray rung clamp 4.1","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[-47.5,192.5,900.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_4_2","name":"Tray rung clamp 4.2","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[47.5,192.5,900.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_4_3","name":"Tray rung clamp 4.3","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[-47.5,207.5,900.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P02_Rung_Clamp_4_4","name":"Tray rung clamp 4.4","group":"Printed","no":102,"printed":true,"size":[55.0,45.0,30.0],"pos":[47.5,207.5,900.0],"family":"Tray rung clamp","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":50,"supports":false,"purpose":"Clamps the sled rail to the ladder rung; M6 bolt through.","draft":true}},{"key":"P03_GPU_Cradle_1","name":"GPU cradle 1","group":"Printed","no":103,"printed":true,"size":[60.0,50.0,90.0],"pos":[110.0,-39.0,409.0],"family":"GPU cradle","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":35,"supports":true,"purpose":"Takes the far end of the card so the slot carries no cantilever load.","draft":true}},{"key":"P03_GPU_Cradle_2","name":"GPU cradle 2","group":"Printed","no":103,"printed":true,"size":[60.0,50.0,90.0],"pos":[110.0,-39.0,589.0],"family":"GPU cradle","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":35,"supports":true,"purpose":"Takes the far end of the card so the slot carries no cantilever load.","draft":true}},{"key":"P03_GPU_Cradle_3","name":"GPU cradle 3","group":"Printed","no":103,"printed":true,"size":[60.0,50.0,90.0],"pos":[110.0,-39.0,769.0],"family":"GPU cradle","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":35,"supports":true,"purpose":"Takes the far end of the card so the slot carries no cantilever load.","draft":true}},{"key":"P03_GPU_Cradle_4","name":"GPU cradle 4","group":"Printed","no":103,"printed":true,"size":[60.0,50.0,90.0],"pos":[110.0,-39.0,949.0],"family":"GPU cradle","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":4,"infill_pct":35,"supports":true,"purpose":"Takes the far end of the card so the slot carries no cantilever load.","draft":true}},{"key":"P04_PSU_Cradle_1","name":"PSU cradle 1","group":"Printed","no":104,"printed":true,"size":[112.0,137.0,22.0],"pos":[-172.5,-147.5,84.0],"family":"PSU cradle","material":"printed","profile":{"material":"ASA","layer_mm":0.24,"walls":4,"infill_pct":30,"supports":false,"purpose":"Locates and isolates the PSU; ASA because it sits in the hot air path.","draft":true}},{"key":"P04_PSU_Cradle_2","name":"PSU cradle 2","group":"Printed","no":104,"printed":true,"size":[112.0,137.0,22.0],"pos":[-57.5,-147.5,84.0],"family":"PSU cradle","material":"printed","profile":{"material":"ASA","layer_mm":0.24,"walls":4,"infill_pct":30,"supports":false,"purpose":"Locates and isolates the PSU; ASA because it sits in the hot air path.","draft":true}},{"key":"P04_PSU_Cradle_3","name":"PSU cradle 3","group":"Printed","no":104,"printed":true,"size":[112.0,137.0,22.0],"pos":[57.5,-147.5,84.0],"family":"PSU cradle","material":"printed","profile":{"material":"ASA","layer_mm":0.24,"walls":4,"infill_pct":30,"supports":false,"purpose":"Locates and isolates the PSU; ASA because it sits in the hot air path.","draft":true}},{"key":"P04_PSU_Cradle_4","name":"PSU cradle 4","group":"Printed","no":104,"printed":true,"size":[112.0,137.0,22.0],"pos":[172.5,-147.5,84.0],"family":"PSU cradle","material":"printed","profile":{"material":"ASA","layer_mm":0.24,"walls":4,"infill_pct":30,"supports":false,"purpose":"Locates and isolates the PSU; ASA because it sits in the hot air path.","draft":true}},{"key":"P05_Fan_Shroud_Ex_1","name":"Exhaust fan shroud 1","group":"Printed","no":105,"printed":true,"size":[150.0,150.0,28.0],"pos":[-370.0,0,1100.0],"family":"Fan shroud","material":"printed","profile":{"material":"PETG","layer_mm":0.28,"walls":3,"infill_pct":20,"supports":false,"purpose":"Seals fan to grille so air is not recirculated around the frame.","draft":false}},{"key":"P05_Fan_Shroud_Ex_2","name":"Exhaust fan shroud 2","group":"Printed","no":105,"printed":true,"size":[150.0,150.0,28.0],"pos":[-222.0,0,1100.0],"family":"Fan shroud","material":"printed","profile":{"material":"PETG","layer_mm":0.28,"walls":3,"infill_pct":20,"supports":false,"purpose":"Seals fan to grille so air is not recirculated around the frame.","draft":false}},{"key":"P05_Fan_Shroud_Ex_3","name":"Exhaust fan shroud 3","group":"Printed","no":105,"printed":true,"size":[150.0,150.0,28.0],"pos":[-74.0,0,1100.0],"family":"Fan shroud","material":"printed","profile":{"material":"PETG","layer_mm":0.28,"walls":3,"infill_pct":20,"supports":false,"purpose":"Seals fan to grille so air is not recirculated around the frame.","draft":false}},{"key":"P05_Fan_Shroud_Ex_4","name":"Exhaust fan shroud 4","group":"Printed","no":105,"printed":true,"size":[150.0,150.0,28.0],"pos":[74.0,0,1100.0],"family":"Fan shroud","material":"printed","profile":{"material":"PETG","layer_mm":0.28,"walls":3,"infill_pct":20,"supports":false,"purpose":"Seals fan to grille so air is not recirculated around the frame.","draft":false}},{"key":"P05_Fan_Shroud_Ex_5","name":"Exhaust fan shroud 5","group":"Printed","no":105,"printed":true,"size":[150.0,150.0,28.0],"pos":[222.0,0,1100.0],"family":"Fan shroud","material":"printed","profile":{"material":"PETG","layer_mm":0.28,"walls":3,"infill_pct":20,"supports":false,"purpose":"Seals fan to grille so air is not recirculated around the frame.","draft":false}},{"key":"P05_Fan_Shroud_Ex_6","name":"Exhaust fan shroud 6","group":"Printed","no":105,"printed":true,"size":[150.0,150.0,28.0],"pos":[370.0,0,1100.0],"family":"Fan shroud","material":"printed","profile":{"material":"PETG","layer_mm":0.28,"walls":3,"infill_pct":20,"supports":false,"purpose":"Seals fan to grille so air is not recirculated around the frame.","draft":false}},{"key":"P05_Fan_Shroud_In_1","name":"Intake fan shroud 1","group":"Printed","no":105,"printed":true,"size":[150.0,150.0,28.0],"pos":[-255.0,-205.0,220.0],"family":"Fan shroud","material":"printed","profile":{"material":"PETG","layer_mm":0.28,"walls":3,"infill_pct":20,"supports":false,"purpose":"Ducts intake air and carries the dust filter frame.","draft":false}},{"key":"P05_Fan_Shroud_In_2","name":"Intake fan shroud 2","group":"Printed","no":105,"printed":true,"size":[150.0,150.0,28.0],"pos":[-85.0,-205.0,220.0],"family":"Fan shroud","material":"printed","profile":{"material":"PETG","layer_mm":0.28,"walls":3,"infill_pct":20,"supports":false,"purpose":"Ducts intake air and carries the dust filter frame.","draft":false}},{"key":"P05_Fan_Shroud_In_3","name":"Intake fan shroud 3","group":"Printed","no":105,"printed":true,"size":[150.0,150.0,28.0],"pos":[85.0,-205.0,220.0],"family":"Fan shroud","material":"printed","profile":{"material":"PETG","layer_mm":0.28,"walls":3,"infill_pct":20,"supports":false,"purpose":"Ducts intake air and carries the dust filter frame.","draft":false}},{"key":"P05_Fan_Shroud_In_4","name":"Intake fan shroud 4","group":"Printed","no":105,"printed":true,"size":[150.0,150.0,28.0],"pos":[255.0,-205.0,220.0],"family":"Fan shroud","material":"printed","profile":{"material":"PETG","layer_mm":0.28,"walls":3,"infill_pct":20,"supports":false,"purpose":"Ducts intake air and carries the dust filter frame.","draft":false}},{"key":"P06_LED_Diffuser_LF_1","name":"LED diffuser LF segment 1","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[-237.5,-237.5,411.67],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_LF_2","name":"LED diffuser LF segment 2","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[-237.5,-237.5,665.0],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_LF_3","name":"LED diffuser LF segment 3","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[-237.5,-237.5,918.33],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_LB_1","name":"LED diffuser LB segment 1","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[-237.5,237.5,411.67],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_LB_2","name":"LED diffuser LB segment 2","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[-237.5,237.5,665.0],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_LB_3","name":"LED diffuser LB segment 3","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[-237.5,237.5,918.33],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_RF_1","name":"LED diffuser RF segment 1","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[237.5,-237.5,411.67],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_RF_2","name":"LED diffuser RF segment 2","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[237.5,-237.5,665.0],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_RF_3","name":"LED diffuser RF segment 3","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[237.5,-237.5,918.33],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_RB_1","name":"LED diffuser RB segment 1","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[237.5,237.5,411.67],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_RB_2","name":"LED diffuser RB segment 2","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[237.5,237.5,665.0],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P06_LED_Diffuser_RB_3","name":"LED diffuser RB segment 3","group":"Printed","no":106,"printed":true,"size":[22.0,22.0,253.33],"pos":[237.5,237.5,918.33],"family":"LED corner diffuser","material":"diffuser","profile":{"material":"Clear PETG","layer_mm":0.2,"walls":2,"infill_pct":15,"supports":false,"purpose":"Print in clear PETG, 2 walls, no top surface \u2014 diffuses the strip into an even line.","draft":false}},{"key":"P07_Glass_Clip_F1","name":"Glass edge clip F1","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[0.0,-238.0,335.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_B1","name":"Glass edge clip B1","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[0.0,238.0,335.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_L1","name":"Glass edge clip L1","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[-238.0,0.0,335.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_R1","name":"Glass edge clip R1","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[238.0,0.0,335.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_F2","name":"Glass edge clip F2","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[0.0,-238.0,665.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_B2","name":"Glass edge clip B2","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[0.0,238.0,665.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_L2","name":"Glass edge clip L2","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[-238.0,0.0,665.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_R2","name":"Glass edge clip R2","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[238.0,0.0,665.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_F3","name":"Glass edge clip F3","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[0.0,-238.0,995.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_B3","name":"Glass edge clip B3","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[0.0,238.0,995.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_L3","name":"Glass edge clip L3","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[-238.0,0.0,995.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P07_Glass_Clip_R3","name":"Glass edge clip R3","group":"Printed","no":107,"printed":true,"size":[45.0,45.0,18.0],"pos":[238.0,0.0,995.0],"family":"Glass edge clip","material":"printed","profile":{"material":"TPU 95A","layer_mm":0.2,"walls":3,"infill_pct":25,"supports":false,"purpose":"Flexible clip \u2014 grips the pane without a hard glass-on-metal contact.","draft":false}},{"key":"P08_Corner_Bracket_LF_Bot","name":"Corner bracket LF bot","group":"Printed","no":108,"printed":true,"size":[70.0,70.0,70.0],"pos":[-215.0,-215.0,310.0],"family":"Corner bracket","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":60,"supports":true,"purpose":"Structural corner \u2014 ties post, plinth and cap. Print solid-ish; this one carries the glass load.","draft":true}},{"key":"P08_Corner_Bracket_LF_Top","name":"Corner bracket LF top","group":"Printed","no":108,"printed":true,"size":[70.0,70.0,70.0],"pos":[-215.0,-215.0,1020.0],"family":"Corner bracket","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":60,"supports":true,"purpose":"Structural corner \u2014 ties post, plinth and cap. Print solid-ish; this one carries the glass load.","draft":true}},{"key":"P08_Corner_Bracket_LB_Bot","name":"Corner bracket LB bot","group":"Printed","no":108,"printed":true,"size":[70.0,70.0,70.0],"pos":[-215.0,215.0,310.0],"family":"Corner bracket","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":60,"supports":true,"purpose":"Structural corner \u2014 ties post, plinth and cap. Print solid-ish; this one carries the glass load.","draft":true}},{"key":"P08_Corner_Bracket_LB_Top","name":"Corner bracket LB top","group":"Printed","no":108,"printed":true,"size":[70.0,70.0,70.0],"pos":[-215.0,215.0,1020.0],"family":"Corner bracket","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":60,"supports":true,"purpose":"Structural corner \u2014 ties post, plinth and cap. Print solid-ish; this one carries the glass load.","draft":true}},{"key":"P08_Corner_Bracket_RF_Bot","name":"Corner bracket RF bot","group":"Printed","no":108,"printed":true,"size":[70.0,70.0,70.0],"pos":[215.0,-215.0,310.0],"family":"Corner bracket","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":60,"supports":true,"purpose":"Structural corner \u2014 ties post, plinth and cap. Print solid-ish; this one carries the glass load.","draft":true}},{"key":"P08_Corner_Bracket_RF_Top","name":"Corner bracket RF top","group":"Printed","no":108,"printed":true,"size":[70.0,70.0,70.0],"pos":[215.0,-215.0,1020.0],"family":"Corner bracket","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":60,"supports":true,"purpose":"Structural corner \u2014 ties post, plinth and cap. Print solid-ish; this one carries the glass load.","draft":true}},{"key":"P08_Corner_Bracket_RB_Bot","name":"Corner bracket RB bot","group":"Printed","no":108,"printed":true,"size":[70.0,70.0,70.0],"pos":[215.0,215.0,310.0],"family":"Corner bracket","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":60,"supports":true,"purpose":"Structural corner \u2014 ties post, plinth and cap. Print solid-ish; this one carries the glass load.","draft":true}},{"key":"P08_Corner_Bracket_RB_Top","name":"Corner bracket RB top","group":"Printed","no":108,"printed":true,"size":[70.0,70.0,70.0],"pos":[215.0,215.0,1020.0],"family":"Corner bracket","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":60,"supports":true,"purpose":"Structural corner \u2014 ties post, plinth and cap. Print solid-ish; this one carries the glass load.","draft":true}},{"key":"P09_Cable_Comb_1","name":"Cable comb 1","group":"Printed","no":109,"printed":true,"size":[90.0,22.0,14.0],"pos":[0,242.0,335.0],"family":"Cable comb","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":3,"infill_pct":20,"supports":false,"purpose":"Dresses the loom into lanes; clips over the tray side rail.","draft":false}},{"key":"P09_Cable_Comb_2","name":"Cable comb 2","group":"Printed","no":109,"printed":true,"size":[90.0,22.0,14.0],"pos":[0,242.0,429.29],"family":"Cable comb","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":3,"infill_pct":20,"supports":false,"purpose":"Dresses the loom into lanes; clips over the tray side rail.","draft":false}},{"key":"P09_Cable_Comb_3","name":"Cable comb 3","group":"Printed","no":109,"printed":true,"size":[90.0,22.0,14.0],"pos":[0,242.0,523.57],"family":"Cable comb","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":3,"infill_pct":20,"supports":false,"purpose":"Dresses the loom into lanes; clips over the tray side rail.","draft":false}},{"key":"P09_Cable_Comb_4","name":"Cable comb 4","group":"Printed","no":109,"printed":true,"size":[90.0,22.0,14.0],"pos":[0,242.0,617.86],"family":"Cable comb","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":3,"infill_pct":20,"supports":false,"purpose":"Dresses the loom into lanes; clips over the tray side rail.","draft":false}},{"key":"P09_Cable_Comb_5","name":"Cable comb 5","group":"Printed","no":109,"printed":true,"size":[90.0,22.0,14.0],"pos":[0,242.0,712.14],"family":"Cable comb","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":3,"infill_pct":20,"supports":false,"purpose":"Dresses the loom into lanes; clips over the tray side rail.","draft":false}},{"key":"P09_Cable_Comb_6","name":"Cable comb 6","group":"Printed","no":109,"printed":true,"size":[90.0,22.0,14.0],"pos":[0,242.0,806.43],"family":"Cable comb","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":3,"infill_pct":20,"supports":false,"purpose":"Dresses the loom into lanes; clips over the tray side rail.","draft":false}},{"key":"P09_Cable_Comb_7","name":"Cable comb 7","group":"Printed","no":109,"printed":true,"size":[90.0,22.0,14.0],"pos":[0,242.0,900.71],"family":"Cable comb","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":3,"infill_pct":20,"supports":false,"purpose":"Dresses the loom into lanes; clips over the tray side rail.","draft":false}},{"key":"P09_Cable_Comb_8","name":"Cable comb 8","group":"Printed","no":109,"printed":true,"size":[90.0,22.0,14.0],"pos":[0,242.0,995.0],"family":"Cable comb","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":3,"infill_pct":20,"supports":false,"purpose":"Dresses the loom into lanes; clips over the tray side rail.","draft":false}},{"key":"P10_VESA_Plate","name":"VESA 100 adapter plate","group":"Printed","no":110,"printed":true,"size":[140.0,12.0,140.0],"pos":[0,-400.0,1015.0],"family":"VESA adapter plate","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":5,"infill_pct":60,"supports":false,"purpose":"Adapts the arm to the display's VESA pattern. Print flat, 5 walls.","draft":false}},{"key":"P11_Tray_Cap_Bottom","name":"Tray end cap \u2014 bottom","group":"Printed","no":111,"printed":true,"size":[158.0,68.0,20.0],"pos":[0,200.0,287.0],"family":"Tray end cap","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":25,"supports":false,"purpose":"Caps the cut tray ends \u2014 no sharp galvanised edges near cables.","draft":false}},{"key":"P11_Tray_Cap_Top","name":"Tray end cap \u2014 top","group":"Printed","no":111,"printed":true,"size":[158.0,68.0,20.0],"pos":[0,200.0,1043.0],"family":"Tray end cap","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":25,"supports":false,"purpose":"Caps the cut tray ends \u2014 no sharp galvanised edges near cables.","draft":false}},{"key":"P12_Caster_Pad_LF","name":"Caster mount pad LF","group":"Printed","no":112,"printed":true,"size":[95.0,95.0,14.0],"pos":[-190.0,-190.0,82.0],"family":"Caster mount pad","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":6,"infill_pct":60,"supports":false,"purpose":"Spreads ~15 kg per corner into the plinth floor. High wall count.","draft":false}},{"key":"P12_Caster_Pad_LB","name":"Caster mount pad LB","group":"Printed","no":112,"printed":true,"size":[95.0,95.0,14.0],"pos":[-190.0,190.0,82.0],"family":"Caster mount pad","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":6,"infill_pct":60,"supports":false,"purpose":"Spreads ~15 kg per corner into the plinth floor. High wall count.","draft":false}},{"key":"P12_Caster_Pad_RF","name":"Caster mount pad RF","group":"Printed","no":112,"printed":true,"size":[95.0,95.0,14.0],"pos":[190.0,-190.0,82.0],"family":"Caster mount pad","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":6,"infill_pct":60,"supports":false,"purpose":"Spreads ~15 kg per corner into the plinth floor. High wall count.","draft":false}},{"key":"P12_Caster_Pad_RB","name":"Caster mount pad RB","group":"Printed","no":112,"printed":true,"size":[95.0,95.0,14.0],"pos":[190.0,190.0,82.0],"family":"Caster mount pad","material":"printed","profile":{"material":"PETG","layer_mm":0.2,"walls":6,"infill_pct":60,"supports":false,"purpose":"Spreads ~15 kg per corner into the plinth floor. High wall count.","draft":false}},{"key":"P13_Bezel_Top_1","name":"Display bezel top rail 1","group":"Printed","no":113,"printed":true,"size":[180.0,25.0,45.0],"pos":[-180.0,-455.0,1167.5],"family":"Display bezel rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":15,"supports":false,"purpose":"Bezel frame, segmented to fit the bed; dowel and glue the joints.","draft":true}},{"key":"P13_Bezel_Top_2","name":"Display bezel top rail 2","group":"Printed","no":113,"printed":true,"size":[180.0,25.0,45.0],"pos":[0.0,-455.0,1167.5],"family":"Display bezel rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":15,"supports":false,"purpose":"Bezel frame, segmented to fit the bed; dowel and glue the joints.","draft":true}},{"key":"P13_Bezel_Top_3","name":"Display bezel top rail 3","group":"Printed","no":113,"printed":true,"size":[180.0,25.0,45.0],"pos":[180.0,-455.0,1167.5],"family":"Display bezel rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":15,"supports":false,"purpose":"Bezel frame, segmented to fit the bed; dowel and glue the joints.","draft":true}},{"key":"P13_Bezel_Bottom_1","name":"Display bezel bottom rail 1","group":"Printed","no":113,"printed":true,"size":[180.0,25.0,45.0],"pos":[-180.0,-455.0,862.5],"family":"Display bezel rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":15,"supports":false,"purpose":"Bezel frame, segmented to fit the bed; dowel and glue the joints.","draft":true}},{"key":"P13_Bezel_Bottom_2","name":"Display bezel bottom rail 2","group":"Printed","no":113,"printed":true,"size":[180.0,25.0,45.0],"pos":[0.0,-455.0,862.5],"family":"Display bezel rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":15,"supports":false,"purpose":"Bezel frame, segmented to fit the bed; dowel and glue the joints.","draft":true}},{"key":"P13_Bezel_Bottom_3","name":"Display bezel bottom rail 3","group":"Printed","no":113,"printed":true,"size":[180.0,25.0,45.0],"pos":[180.0,-455.0,862.5],"family":"Display bezel rail","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":15,"supports":false,"purpose":"Bezel frame, segmented to fit the bed; dowel and glue the joints.","draft":true}},{"key":"P13_Bezel_Left_1","name":"Display bezel left stile 1","group":"Printed","no":113,"printed":true,"size":[45.0,25.0,175.0],"pos":[-247.5,-455.0,927.5],"family":"Display bezel stile","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":15,"supports":false,"purpose":"Bezel frame, segmented to fit the bed; dowel and glue the joints.","draft":true}},{"key":"P13_Bezel_Left_2","name":"Display bezel left stile 2","group":"Printed","no":113,"printed":true,"size":[45.0,25.0,175.0],"pos":[-247.5,-455.0,1102.5],"family":"Display bezel stile","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":15,"supports":false,"purpose":"Bezel frame, segmented to fit the bed; dowel and glue the joints.","draft":true}},{"key":"P13_Bezel_Right_1","name":"Display bezel right stile 1","group":"Printed","no":113,"printed":true,"size":[45.0,25.0,175.0],"pos":[247.5,-455.0,927.5],"family":"Display bezel stile","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":15,"supports":false,"purpose":"Bezel frame, segmented to fit the bed; dowel and glue the joints.","draft":true}},{"key":"P13_Bezel_Right_2","name":"Display bezel right stile 2","group":"Printed","no":113,"printed":true,"size":[45.0,25.0,175.0],"pos":[247.5,-455.0,1102.5],"family":"Display bezel stile","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":15,"supports":false,"purpose":"Bezel frame, segmented to fit the bed; dowel and glue the joints.","draft":true}},{"key":"P14_Filter_Frame_1","name":"Dust filter frame 1","group":"Printed","no":114,"printed":true,"size":[160.0,160.0,12.0],"pos":[-255.0,-220.0,105.0],"family":"Dust filter frame","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":20,"supports":false,"purpose":"Holds a cut mesh square; slides out from the front for cleaning.","draft":false}},{"key":"P14_Filter_Frame_2","name":"Dust filter frame 2","group":"Printed","no":114,"printed":true,"size":[160.0,160.0,12.0],"pos":[-85.0,-220.0,105.0],"family":"Dust filter frame","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":20,"supports":false,"purpose":"Holds a cut mesh square; slides out from the front for cleaning.","draft":false}},{"key":"P14_Filter_Frame_3","name":"Dust filter frame 3","group":"Printed","no":114,"printed":true,"size":[160.0,160.0,12.0],"pos":[85.0,-220.0,105.0],"family":"Dust filter frame","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":20,"supports":false,"purpose":"Holds a cut mesh square; slides out from the front for cleaning.","draft":false}},{"key":"P14_Filter_Frame_4","name":"Dust filter frame 4","group":"Printed","no":114,"printed":true,"size":[160.0,160.0,12.0],"pos":[255.0,-220.0,105.0],"family":"Dust filter frame","material":"printed","profile":{"material":"PETG","layer_mm":0.24,"walls":3,"infill_pct":20,"supports":false,"purpose":"Holds a cut mesh square; slides out from the front for cleaning.","draft":false}}],"steps":[{"no":1,"title":"Measure and check before you make anything","time":"1 h","detail":["Measure the real tray: ladder width, rung pitch, rung hole spacing.","Measure a board (mount-hole pattern), the longest GPU, and a PSU.","Check those against spec.py's parameters and re-run it if they differ.","Only then order the glass \u2014 it is the long-lead, non-returnable item."],"warning":"Every dimension in this model came from the brief, not from your hardware. This step is what makes the rest true.","tools":["tape","vernier","the measure sheet"],"cut":[],"parts":[],"visible":[]},{"no":2,"title":"Cut the spine","time":"1 h","detail":["Cut the tray to length and deburr every cut strand.","If the tray's rung pitch does not match the tier pitch, add rungs.","Fit the printed end caps top and bottom."],"warning":"Vacuum the swarf now. Galvanised filings inside a running machine are a short waiting to happen.","tools":["tray cutter or grinder","file","vacuum"],"cut":["T01","T02"],"parts":["P11_Tray_Cap_Bottom","P11_Tray_Cap_Top"],"visible":["03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top"]},{"no":3,"title":"Build the plinth","time":"3 h","detail":["Assemble the folded shell: sides, ends, floor, deck.","Bolt the printed caster pads through the floor, then the casters.","Fit the 4 intake fan plates, shrouds and filter frames.","Stand it up and check it does not rock before anything goes on top."],"warning":"","tools":["drill","rivet gun or M5 hardware","deburring tool"],"cut":["S01","S02","S03","S04","S08","M01"],"parts":["P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"],"visible":["02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":4,"title":"Power in the plinth","time":"2 h","detail":["Drop the 4 PSUs into their printed cradles.","Mount the PDU; run one mains lead in through a grommeted entry.","Bond the chassis and the tray to earth, and test continuity.","Label every outlet to its node before the cables disappear upward."],"warning":"Your trade, your call \u2014 but the model's own check says this is ~10.5 A at full tilt on five nodes. Dedicated circuit, Type C RCBO for the inrush, and stagger the PSU starts if you can.","tools":["crimpers","multimeter","label maker"],"cut":[],"parts":["P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4"],"visible":["02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":5,"title":"Stand the spine","time":"1 h","detail":["Bolt the tray to the plinth deck, plumb in both axes.","Check it for rack under hand load \u2014 everything above hangs off this."],"warning":"","tools":["spirit level","spanner set"],"cut":["T01"],"parts":[],"visible":["02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":6,"title":"Posts and corners","time":"2 h","detail":["Cut the four posts in one setup so they are identical.","Fit printed corner brackets top and bottom on each post.","Stand the posts on the plinth and square the frame diagonally."],"warning":"Measure both diagonals and make them equal. Out of square here means the glass will not drop into its slots later.","tools":["mitre saw","hex keys","square"],"cut":["E01"],"parts":["P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top"],"visible":["02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":7,"title":"Node sleds","time":"4 h","detail":["Assemble a pair of printed rails per tier with their rung clamps.","Clamp each sled to its rung, working bottom to top (4 tiers).","Fit M3 standoffs to match the board pattern, then the boards.","Leave the top tier until last \u2014 it is your access for everything else."],"warning":"","tools":["hex keys","M3 driver"],"cut":[],"parts":["P01_Node_Rail_1L","P01_Node_Rail_1R","P01_Node_Rail_2L","P01_Node_Rail_2R","P01_Node_Rail_3L","P01_Node_Rail_3R","P01_Node_Rail_4L","P01_Node_Rail_4R","P02_Rung_Clamp_1_1","P02_Rung_Clamp_1_2","P02_Rung_Clamp_1_3","P02_Rung_Clamp_1_4","P02_Rung_Clamp_2_1","P02_Rung_Clamp_2_2","P02_Rung_Clamp_2_3","P02_Rung_Clamp_2_4","P02_Rung_Clamp_3_1","P02_Rung_Clamp_3_2","P02_Rung_Clamp_3_3","P02_Rung_Clamp_3_4","P02_Rung_Clamp_4_1","P02_Rung_Clamp_4_2","P02_Rung_Clamp_4_3","P02_Rung_Clamp_4_4"],"visible":["02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","04_Motherboard_1","04_Motherboard_2","04_Motherboard_3","04_Motherboard_4","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P01_Node_Rail_1L","P01_Node_Rail_1R","P01_Node_Rail_2L","P01_Node_Rail_2R","P01_Node_Rail_3L","P01_Node_Rail_3R","P01_Node_Rail_4L","P01_Node_Rail_4R","P02_Rung_Clamp_1_1","P02_Rung_Clamp_1_2","P02_Rung_Clamp_1_3","P02_Rung_Clamp_1_4","P02_Rung_Clamp_2_1","P02_Rung_Clamp_2_2","P02_Rung_Clamp_2_3","P02_Rung_Clamp_2_4","P02_Rung_Clamp_3_1","P02_Rung_Clamp_3_2","P02_Rung_Clamp_3_3","P02_Rung_Clamp_3_4","P02_Rung_Clamp_4_1","P02_Rung_Clamp_4_2","P02_Rung_Clamp_4_3","P02_Rung_Clamp_4_4","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":8,"title":"GPUs and cradles","time":"1 h","detail":["Fit each card on its riser, then slide the printed cradle under the far end and shim it until the card sits level.","Check the card clears the tier above with the fans spinning."],"warning":"The cradle must carry the card's weight, not preload the slot. Snug, not jacked up.","tools":["hex keys"],"cut":[],"parts":["P03_GPU_Cradle_1","P03_GPU_Cradle_2","P03_GPU_Cradle_3","P03_GPU_Cradle_4"],"visible":["02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","04_Motherboard_1","04_Motherboard_2","04_Motherboard_3","04_Motherboard_4","05_GPU_1","05_GPU_2","05_GPU_3","05_GPU_4","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P01_Node_Rail_1L","P01_Node_Rail_1R","P01_Node_Rail_2L","P01_Node_Rail_2R","P01_Node_Rail_3L","P01_Node_Rail_3R","P01_Node_Rail_4L","P01_Node_Rail_4R","P02_Rung_Clamp_1_1","P02_Rung_Clamp_1_2","P02_Rung_Clamp_1_3","P02_Rung_Clamp_1_4","P02_Rung_Clamp_2_1","P02_Rung_Clamp_2_2","P02_Rung_Clamp_2_3","P02_Rung_Clamp_2_4","P02_Rung_Clamp_3_1","P02_Rung_Clamp_3_2","P02_Rung_Clamp_3_3","P02_Rung_Clamp_3_4","P02_Rung_Clamp_4_1","P02_Rung_Clamp_4_2","P02_Rung_Clamp_4_3","P02_Rung_Clamp_4_4","P03_GPU_Cradle_1","P03_GPU_Cradle_2","P03_GPU_Cradle_3","P03_GPU_Cradle_4","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":9,"title":"Loom and dress","time":"3 h","detail":["Run each node's PSU leads down the rear of the tray.","Clip the printed combs on and dress the loom into lanes.","Add strain relief at each board so the loom's weight never hangs off a connector.","Leave a service loop per tier so a node can slide out powered down."],"warning":"","tools":["cable ties","side cutters"],"cut":[],"parts":["P09_Cable_Comb_1","P09_Cable_Comb_2","P09_Cable_Comb_3","P09_Cable_Comb_4","P09_Cable_Comb_5","P09_Cable_Comb_6","P09_Cable_Comb_7","P09_Cable_Comb_8"],"visible":["02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","04_Motherboard_1","04_Motherboard_2","04_Motherboard_3","04_Motherboard_4","05_GPU_1","05_GPU_2","05_GPU_3","05_GPU_4","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","13_Cable_Loom","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P01_Node_Rail_1L","P01_Node_Rail_1R","P01_Node_Rail_2L","P01_Node_Rail_2R","P01_Node_Rail_3L","P01_Node_Rail_3R","P01_Node_Rail_4L","P01_Node_Rail_4R","P02_Rung_Clamp_1_1","P02_Rung_Clamp_1_2","P02_Rung_Clamp_1_3","P02_Rung_Clamp_1_4","P02_Rung_Clamp_2_1","P02_Rung_Clamp_2_2","P02_Rung_Clamp_2_3","P02_Rung_Clamp_2_4","P02_Rung_Clamp_3_1","P02_Rung_Clamp_3_2","P02_Rung_Clamp_3_3","P02_Rung_Clamp_3_4","P02_Rung_Clamp_4_1","P02_Rung_Clamp_4_2","P02_Rung_Clamp_4_3","P02_Rung_Clamp_4_4","P03_GPU_Cradle_1","P03_GPU_Cradle_2","P03_GPU_Cradle_3","P03_GPU_Cradle_4","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top","P09_Cable_Comb_1","P09_Cable_Comb_2","P09_Cable_Comb_3","P09_Cable_Comb_4","P09_Cable_Comb_5","P09_Cable_Comb_6","P09_Cable_Comb_7","P09_Cable_Comb_8","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":10,"title":"Smoke test \u2014 before any glass goes on","time":"2 h","detail":["Power one node. Confirm POST, then shut down.","Repeat per node, then run all of them together for an hour.","Watch the PDU load and feel for hot spots at the top tier."],"warning":"Do not skip the order here. Everything is reachable now and nothing is reachable once the panes are in.","tools":["multimeter","IR thermometer","a fire blanket, honestly"],"cut":[],"parts":[],"visible":["02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","04_Motherboard_1","04_Motherboard_2","04_Motherboard_3","04_Motherboard_4","05_GPU_1","05_GPU_2","05_GPU_3","05_GPU_4","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","13_Cable_Loom","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P01_Node_Rail_1L","P01_Node_Rail_1R","P01_Node_Rail_2L","P01_Node_Rail_2R","P01_Node_Rail_3L","P01_Node_Rail_3R","P01_Node_Rail_4L","P01_Node_Rail_4R","P02_Rung_Clamp_1_1","P02_Rung_Clamp_1_2","P02_Rung_Clamp_1_3","P02_Rung_Clamp_1_4","P02_Rung_Clamp_2_1","P02_Rung_Clamp_2_2","P02_Rung_Clamp_2_3","P02_Rung_Clamp_2_4","P02_Rung_Clamp_3_1","P02_Rung_Clamp_3_2","P02_Rung_Clamp_3_3","P02_Rung_Clamp_3_4","P02_Rung_Clamp_4_1","P02_Rung_Clamp_4_2","P02_Rung_Clamp_4_3","P02_Rung_Clamp_4_4","P03_GPU_Cradle_1","P03_GPU_Cradle_2","P03_GPU_Cradle_3","P03_GPU_Cradle_4","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top","P09_Cable_Comb_1","P09_Cable_Comb_2","P09_Cable_Comb_3","P09_Cable_Comb_4","P09_Cable_Comb_5","P09_Cable_Comb_6","P09_Cable_Comb_7","P09_Cable_Comb_8","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":11,"title":"Lighting","time":"2 h","detail":["Clean the posts, run one strip per corner, feed to the controller.","Clip the printed diffusers over the strips.","Test the full run before the glass traps it."],"warning":"","tools":["soldering iron","isopropyl"],"cut":["M02"],"parts":["P06_LED_Diffuser_LB_1","P06_LED_Diffuser_LB_2","P06_LED_Diffuser_LB_3","P06_LED_Diffuser_LF_1","P06_LED_Diffuser_LF_2","P06_LED_Diffuser_LF_3","P06_LED_Diffuser_RB_1","P06_LED_Diffuser_RB_2","P06_LED_Diffuser_RB_3","P06_LED_Diffuser_RF_1","P06_LED_Diffuser_RF_2","P06_LED_Diffuser_RF_3"],"visible":["02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","04_Motherboard_1","04_Motherboard_2","04_Motherboard_3","04_Motherboard_4","05_GPU_1","05_GPU_2","05_GPU_3","05_GPU_4","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","10_LED_Strip_LB","10_LED_Strip_LF","10_LED_Strip_RB","10_LED_Strip_RF","13_Cable_Loom","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P01_Node_Rail_1L","P01_Node_Rail_1R","P01_Node_Rail_2L","P01_Node_Rail_2R","P01_Node_Rail_3L","P01_Node_Rail_3R","P01_Node_Rail_4L","P01_Node_Rail_4R","P02_Rung_Clamp_1_1","P02_Rung_Clamp_1_2","P02_Rung_Clamp_1_3","P02_Rung_Clamp_1_4","P02_Rung_Clamp_2_1","P02_Rung_Clamp_2_2","P02_Rung_Clamp_2_3","P02_Rung_Clamp_2_4","P02_Rung_Clamp_3_1","P02_Rung_Clamp_3_2","P02_Rung_Clamp_3_3","P02_Rung_Clamp_3_4","P02_Rung_Clamp_4_1","P02_Rung_Clamp_4_2","P02_Rung_Clamp_4_3","P02_Rung_Clamp_4_4","P03_GPU_Cradle_1","P03_GPU_Cradle_2","P03_GPU_Cradle_3","P03_GPU_Cradle_4","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P06_LED_Diffuser_LB_1","P06_LED_Diffuser_LB_2","P06_LED_Diffuser_LB_3","P06_LED_Diffuser_LF_1","P06_LED_Diffuser_LF_2","P06_LED_Diffuser_LF_3","P06_LED_Diffuser_RB_1","P06_LED_Diffuser_RB_2","P06_LED_Diffuser_RB_3","P06_LED_Diffuser_RF_1","P06_LED_Diffuser_RF_2","P06_LED_Diffuser_RF_3","P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top","P09_Cable_Comb_1","P09_Cable_Comb_2","P09_Cable_Comb_3","P09_Cable_Comb_4","P09_Cable_Comb_5","P09_Cable_Comb_6","P09_Cable_Comb_7","P09_Cable_Comb_8","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":12,"title":"Top cap and exhaust","time":"2 h","detail":["Assemble the cap; fit the 6 x 140 mm fans into their shrouds and plates.","Fit the perforated grille.","Sit the cap on the posts but leave it loose \u2014 the top pane goes in first."],"warning":"","tools":["drill","hex keys"],"cut":["S05","S06","S07","S08"],"parts":["P05_Fan_Shroud_Ex_1","P05_Fan_Shroud_Ex_2","P05_Fan_Shroud_Ex_3","P05_Fan_Shroud_Ex_4","P05_Fan_Shroud_Ex_5","P05_Fan_Shroud_Ex_6"],"visible":["02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","04_Motherboard_1","04_Motherboard_2","04_Motherboard_3","04_Motherboard_4","05_GPU_1","05_GPU_2","05_GPU_3","05_GPU_4","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","07_Exhaust_Fan_1","07_Exhaust_Fan_2","07_Exhaust_Fan_3","07_Exhaust_Fan_4","07_Exhaust_Fan_5","07_Exhaust_Fan_6","08_Top_Cap_Shell","08_Top_Vent_Grille","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","10_LED_Strip_LB","10_LED_Strip_LF","10_LED_Strip_RB","10_LED_Strip_RF","13_Cable_Loom","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P01_Node_Rail_1L","P01_Node_Rail_1R","P01_Node_Rail_2L","P01_Node_Rail_2R","P01_Node_Rail_3L","P01_Node_Rail_3R","P01_Node_Rail_4L","P01_Node_Rail_4R","P02_Rung_Clamp_1_1","P02_Rung_Clamp_1_2","P02_Rung_Clamp_1_3","P02_Rung_Clamp_1_4","P02_Rung_Clamp_2_1","P02_Rung_Clamp_2_2","P02_Rung_Clamp_2_3","P02_Rung_Clamp_2_4","P02_Rung_Clamp_3_1","P02_Rung_Clamp_3_2","P02_Rung_Clamp_3_3","P02_Rung_Clamp_3_4","P02_Rung_Clamp_4_1","P02_Rung_Clamp_4_2","P02_Rung_Clamp_4_3","P02_Rung_Clamp_4_4","P03_GPU_Cradle_1","P03_GPU_Cradle_2","P03_GPU_Cradle_3","P03_GPU_Cradle_4","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_Ex_1","P05_Fan_Shroud_Ex_2","P05_Fan_Shroud_Ex_3","P05_Fan_Shroud_Ex_4","P05_Fan_Shroud_Ex_5","P05_Fan_Shroud_Ex_6","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P06_LED_Diffuser_LB_1","P06_LED_Diffuser_LB_2","P06_LED_Diffuser_LB_3","P06_LED_Diffuser_LF_1","P06_LED_Diffuser_LF_2","P06_LED_Diffuser_LF_3","P06_LED_Diffuser_RB_1","P06_LED_Diffuser_RB_2","P06_LED_Diffuser_RB_3","P06_LED_Diffuser_RF_1","P06_LED_Diffuser_RF_2","P06_LED_Diffuser_RF_3","P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top","P09_Cable_Comb_1","P09_Cable_Comb_2","P09_Cable_Comb_3","P09_Cable_Comb_4","P09_Cable_Comb_5","P09_Cable_Comb_6","P09_Cable_Comb_7","P09_Cable_Comb_8","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":13,"title":"Glazing \u2014 two people","time":"3 h","detail":["Run foam glazing tape in every channel first.","Top pane, then rear, then the two sides, then the front.","Fit the printed clips as you go; they should grip, not clamp.","Bolt the top cap down once the top pane is captive."],"warning":"Two people and suction cups. A 5 kg toughened pane that touches bare metal or gets dropped an inch is gone, and it is the longest-lead part in the build.","tools":["suction cups","glazing tape","gloves"],"cut":["G01","G02","G03","G04"],"parts":["P07_Glass_Clip_B1","P07_Glass_Clip_B2","P07_Glass_Clip_B3","P07_Glass_Clip_F1","P07_Glass_Clip_F2","P07_Glass_Clip_F3","P07_Glass_Clip_L1","P07_Glass_Clip_L2","P07_Glass_Clip_L3","P07_Glass_Clip_R1","P07_Glass_Clip_R2","P07_Glass_Clip_R3"],"visible":["01_Glass_Front","01_Glass_Left","01_Glass_Rear","01_Glass_Right","01_Glass_Top","02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","04_Motherboard_1","04_Motherboard_2","04_Motherboard_3","04_Motherboard_4","05_GPU_1","05_GPU_2","05_GPU_3","05_GPU_4","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","07_Exhaust_Fan_1","07_Exhaust_Fan_2","07_Exhaust_Fan_3","07_Exhaust_Fan_4","07_Exhaust_Fan_5","07_Exhaust_Fan_6","08_Top_Cap_Shell","08_Top_Vent_Grille","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","10_LED_Strip_LB","10_LED_Strip_LF","10_LED_Strip_RB","10_LED_Strip_RF","13_Cable_Loom","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P01_Node_Rail_1L","P01_Node_Rail_1R","P01_Node_Rail_2L","P01_Node_Rail_2R","P01_Node_Rail_3L","P01_Node_Rail_3R","P01_Node_Rail_4L","P01_Node_Rail_4R","P02_Rung_Clamp_1_1","P02_Rung_Clamp_1_2","P02_Rung_Clamp_1_3","P02_Rung_Clamp_1_4","P02_Rung_Clamp_2_1","P02_Rung_Clamp_2_2","P02_Rung_Clamp_2_3","P02_Rung_Clamp_2_4","P02_Rung_Clamp_3_1","P02_Rung_Clamp_3_2","P02_Rung_Clamp_3_3","P02_Rung_Clamp_3_4","P02_Rung_Clamp_4_1","P02_Rung_Clamp_4_2","P02_Rung_Clamp_4_3","P02_Rung_Clamp_4_4","P03_GPU_Cradle_1","P03_GPU_Cradle_2","P03_GPU_Cradle_3","P03_GPU_Cradle_4","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_Ex_1","P05_Fan_Shroud_Ex_2","P05_Fan_Shroud_Ex_3","P05_Fan_Shroud_Ex_4","P05_Fan_Shroud_Ex_5","P05_Fan_Shroud_Ex_6","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P06_LED_Diffuser_LB_1","P06_LED_Diffuser_LB_2","P06_LED_Diffuser_LB_3","P06_LED_Diffuser_LF_1","P06_LED_Diffuser_LF_2","P06_LED_Diffuser_LF_3","P06_LED_Diffuser_RB_1","P06_LED_Diffuser_RB_2","P06_LED_Diffuser_RB_3","P06_LED_Diffuser_RF_1","P06_LED_Diffuser_RF_2","P06_LED_Diffuser_RF_3","P07_Glass_Clip_B1","P07_Glass_Clip_B2","P07_Glass_Clip_B3","P07_Glass_Clip_F1","P07_Glass_Clip_F2","P07_Glass_Clip_F3","P07_Glass_Clip_L1","P07_Glass_Clip_L2","P07_Glass_Clip_L3","P07_Glass_Clip_R1","P07_Glass_Clip_R2","P07_Glass_Clip_R3","P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top","P09_Cable_Comb_1","P09_Cable_Comb_2","P09_Cable_Comb_3","P09_Cable_Comb_4","P09_Cable_Comb_5","P09_Cable_Comb_6","P09_Cable_Comb_7","P09_Cable_Comb_8","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":14,"title":"Display","time":"1 h","detail":["Mount the arm to the top rail, then the printed VESA plate.","Hang the display, join the bezel segments around it.","Route the display feed down inside the rear post."],"warning":"","tools":["hex keys","VESA screws"],"cut":[],"parts":["P10_VESA_Plate","P13_Bezel_Bottom_1","P13_Bezel_Bottom_2","P13_Bezel_Bottom_3","P13_Bezel_Left_1","P13_Bezel_Left_2","P13_Bezel_Right_1","P13_Bezel_Right_2","P13_Bezel_Top_1","P13_Bezel_Top_2","P13_Bezel_Top_3"],"visible":["01_Glass_Front","01_Glass_Left","01_Glass_Rear","01_Glass_Right","01_Glass_Top","02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","04_Motherboard_1","04_Motherboard_2","04_Motherboard_3","04_Motherboard_4","05_GPU_1","05_GPU_2","05_GPU_3","05_GPU_4","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","07_Exhaust_Fan_1","07_Exhaust_Fan_2","07_Exhaust_Fan_3","07_Exhaust_Fan_4","07_Exhaust_Fan_5","07_Exhaust_Fan_6","08_Top_Cap_Shell","08_Top_Vent_Grille","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","10_LED_Strip_LB","10_LED_Strip_LF","10_LED_Strip_RB","10_LED_Strip_RF","11_Telemetry_Display","12_Monitor_Arm","13_Cable_Loom","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P01_Node_Rail_1L","P01_Node_Rail_1R","P01_Node_Rail_2L","P01_Node_Rail_2R","P01_Node_Rail_3L","P01_Node_Rail_3R","P01_Node_Rail_4L","P01_Node_Rail_4R","P02_Rung_Clamp_1_1","P02_Rung_Clamp_1_2","P02_Rung_Clamp_1_3","P02_Rung_Clamp_1_4","P02_Rung_Clamp_2_1","P02_Rung_Clamp_2_2","P02_Rung_Clamp_2_3","P02_Rung_Clamp_2_4","P02_Rung_Clamp_3_1","P02_Rung_Clamp_3_2","P02_Rung_Clamp_3_3","P02_Rung_Clamp_3_4","P02_Rung_Clamp_4_1","P02_Rung_Clamp_4_2","P02_Rung_Clamp_4_3","P02_Rung_Clamp_4_4","P03_GPU_Cradle_1","P03_GPU_Cradle_2","P03_GPU_Cradle_3","P03_GPU_Cradle_4","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_Ex_1","P05_Fan_Shroud_Ex_2","P05_Fan_Shroud_Ex_3","P05_Fan_Shroud_Ex_4","P05_Fan_Shroud_Ex_5","P05_Fan_Shroud_Ex_6","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P06_LED_Diffuser_LB_1","P06_LED_Diffuser_LB_2","P06_LED_Diffuser_LB_3","P06_LED_Diffuser_LF_1","P06_LED_Diffuser_LF_2","P06_LED_Diffuser_LF_3","P06_LED_Diffuser_RB_1","P06_LED_Diffuser_RB_2","P06_LED_Diffuser_RB_3","P06_LED_Diffuser_RF_1","P06_LED_Diffuser_RF_2","P06_LED_Diffuser_RF_3","P07_Glass_Clip_B1","P07_Glass_Clip_B2","P07_Glass_Clip_B3","P07_Glass_Clip_F1","P07_Glass_Clip_F2","P07_Glass_Clip_F3","P07_Glass_Clip_L1","P07_Glass_Clip_L2","P07_Glass_Clip_L3","P07_Glass_Clip_R1","P07_Glass_Clip_R2","P07_Glass_Clip_R3","P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top","P09_Cable_Comb_1","P09_Cable_Comb_2","P09_Cable_Comb_3","P09_Cable_Comb_4","P09_Cable_Comb_5","P09_Cable_Comb_6","P09_Cable_Comb_7","P09_Cable_Comb_8","P10_VESA_Plate","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P13_Bezel_Bottom_1","P13_Bezel_Bottom_2","P13_Bezel_Bottom_3","P13_Bezel_Left_1","P13_Bezel_Left_2","P13_Bezel_Right_1","P13_Bezel_Right_2","P13_Bezel_Top_1","P13_Bezel_Top_2","P13_Bezel_Top_3","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]},{"no":15,"title":"Commission","time":"2 h","detail":["Set fan curves from the node telemetry, not fixed RPM.","Soak test at full load for two hours; log the top-tier temperature.","Add a fan-fail and over-temp alarm to the dashboard.","Label the circuit at the board, and photograph the loom before you forget how it goes back."],"warning":"If the top tier runs hot at soak, that is the thermal check coming true \u2014 add exhausts before you add nodes.","tools":["IR thermometer","logging on the telemetry display"],"cut":[],"parts":[],"visible":["01_Glass_Front","01_Glass_Left","01_Glass_Rear","01_Glass_Right","01_Glass_Top","02_Plinth_Shell","03_Tray_Rung_1","03_Tray_Rung_2","03_Tray_Rung_3","03_Tray_Rung_4","03_Tray_Spine","04_Motherboard_1","04_Motherboard_2","04_Motherboard_3","04_Motherboard_4","05_GPU_1","05_GPU_2","05_GPU_3","05_GPU_4","06_PSU_1","06_PSU_2","06_PSU_3","06_PSU_4","07_Exhaust_Fan_1","07_Exhaust_Fan_2","07_Exhaust_Fan_3","07_Exhaust_Fan_4","07_Exhaust_Fan_5","07_Exhaust_Fan_6","08_Top_Cap_Shell","08_Top_Vent_Grille","09_Intake_Fan_1","09_Intake_Fan_2","09_Intake_Fan_3","09_Intake_Fan_4","10_LED_Strip_LB","10_LED_Strip_LF","10_LED_Strip_RB","10_LED_Strip_RF","11_Telemetry_Display","12_Monitor_Arm","13_Cable_Loom","14_Caster_LB","14_Caster_LF","14_Caster_RB","14_Caster_RF","P01_Node_Rail_1L","P01_Node_Rail_1R","P01_Node_Rail_2L","P01_Node_Rail_2R","P01_Node_Rail_3L","P01_Node_Rail_3R","P01_Node_Rail_4L","P01_Node_Rail_4R","P02_Rung_Clamp_1_1","P02_Rung_Clamp_1_2","P02_Rung_Clamp_1_3","P02_Rung_Clamp_1_4","P02_Rung_Clamp_2_1","P02_Rung_Clamp_2_2","P02_Rung_Clamp_2_3","P02_Rung_Clamp_2_4","P02_Rung_Clamp_3_1","P02_Rung_Clamp_3_2","P02_Rung_Clamp_3_3","P02_Rung_Clamp_3_4","P02_Rung_Clamp_4_1","P02_Rung_Clamp_4_2","P02_Rung_Clamp_4_3","P02_Rung_Clamp_4_4","P03_GPU_Cradle_1","P03_GPU_Cradle_2","P03_GPU_Cradle_3","P03_GPU_Cradle_4","P04_PSU_Cradle_1","P04_PSU_Cradle_2","P04_PSU_Cradle_3","P04_PSU_Cradle_4","P05_Fan_Shroud_Ex_1","P05_Fan_Shroud_Ex_2","P05_Fan_Shroud_Ex_3","P05_Fan_Shroud_Ex_4","P05_Fan_Shroud_Ex_5","P05_Fan_Shroud_Ex_6","P05_Fan_Shroud_In_1","P05_Fan_Shroud_In_2","P05_Fan_Shroud_In_3","P05_Fan_Shroud_In_4","P06_LED_Diffuser_LB_1","P06_LED_Diffuser_LB_2","P06_LED_Diffuser_LB_3","P06_LED_Diffuser_LF_1","P06_LED_Diffuser_LF_2","P06_LED_Diffuser_LF_3","P06_LED_Diffuser_RB_1","P06_LED_Diffuser_RB_2","P06_LED_Diffuser_RB_3","P06_LED_Diffuser_RF_1","P06_LED_Diffuser_RF_2","P06_LED_Diffuser_RF_3","P07_Glass_Clip_B1","P07_Glass_Clip_B2","P07_Glass_Clip_B3","P07_Glass_Clip_F1","P07_Glass_Clip_F2","P07_Glass_Clip_F3","P07_Glass_Clip_L1","P07_Glass_Clip_L2","P07_Glass_Clip_L3","P07_Glass_Clip_R1","P07_Glass_Clip_R2","P07_Glass_Clip_R3","P08_Corner_Bracket_LB_Bot","P08_Corner_Bracket_LB_Top","P08_Corner_Bracket_LF_Bot","P08_Corner_Bracket_LF_Top","P08_Corner_Bracket_RB_Bot","P08_Corner_Bracket_RB_Top","P08_Corner_Bracket_RF_Bot","P08_Corner_Bracket_RF_Top","P09_Cable_Comb_1","P09_Cable_Comb_2","P09_Cable_Comb_3","P09_Cable_Comb_4","P09_Cable_Comb_5","P09_Cable_Comb_6","P09_Cable_Comb_7","P09_Cable_Comb_8","P10_VESA_Plate","P11_Tray_Cap_Bottom","P11_Tray_Cap_Top","P12_Caster_Pad_LB","P12_Caster_Pad_LF","P12_Caster_Pad_RB","P12_Caster_Pad_RF","P13_Bezel_Bottom_1","P13_Bezel_Bottom_2","P13_Bezel_Bottom_3","P13_Bezel_Left_1","P13_Bezel_Left_2","P13_Bezel_Right_1","P13_Bezel_Right_2","P13_Bezel_Top_1","P13_Bezel_Top_2","P13_Bezel_Top_3","P14_Filter_Frame_1","P14_Filter_Frame_2","P14_Filter_Frame_3","P14_Filter_Frame_4"]}],"cut":[{"key":"G01","name":"Glass pane \u2014 front","process":"order","material":"tinted tempered glass","size":[450.0,780.0,6.0],"qty":1,"note":"Tinted. Specify ALL holes and cutouts before toughening \u2014 tempered glass cannot be drilled or cut afterwards.","tool":"","stock":"supplier cut to size, edges polished, corners eased"},{"key":"G02","name":"Glass pane \u2014 rear","process":"order","material":"tinted tempered glass","size":[450.0,780.0,6.0],"qty":1,"note":"Consider a perforated metal rear panel instead, to let the chimney cross-flow; it is the face nobody sees.","tool":"","stock":"supplier cut to size"},{"key":"G03","name":"Glass pane \u2014 side","process":"order","material":"tinted tempered glass","size":[450.0,780.0,6.0],"qty":2,"note":"Left and right, identical.","tool":"","stock":"supplier cut to size"},{"key":"G04","name":"Glass pane \u2014 top","process":"order","material":"tinted tempered glass","size":[450.0,450.0,6.0],"qty":1,"note":"Sits under the top cap; carries no load but must be toughened \u2014 anything above head height that can fall is safety glass.","tool":"","stock":"supplier cut to size"},{"key":"S01","name":"Plinth side panel","process":"sheet","material":"1.5 mm aluminium or steel","size":[500.0,200.0,1.5],"qty":2,"note":"Front panel carries the intake cutouts; rear is plain.","tool":"laser cut + press brake","stock":"1.5 mm sheet"},{"key":"S02","name":"Plinth end panel","process":"sheet","material":"1.5 mm aluminium or steel","size":[500.0,200.0,1.5],"qty":2,"note":"","tool":"laser cut + press brake","stock":"1.5 mm sheet"},{"key":"S03","name":"Plinth deck (top)","process":"sheet","material":"2 mm aluminium or steel","size":[500.0,500.0,2.0],"qty":1,"note":"Takes the tray load and the node stack above it \u2014 2 mm, and add a folded return on all four edges for stiffness.","tool":"laser cut + press brake","stock":"2 mm sheet"},{"key":"S04","name":"Plinth floor","process":"sheet","material":"2 mm aluminium or steel","size":[500.0,500.0,2.0],"qty":1,"note":"Caster mounts land here; see the caster pads.","tool":"laser cut","stock":"2 mm sheet"},{"key":"S05","name":"Top cap side panel","process":"sheet","material":"1.5 mm aluminium","size":[500.0,90.0,1.5],"qty":2,"note":"","tool":"laser cut + press brake","stock":"1.5 mm sheet"},{"key":"S06","name":"Top cap end panel","process":"sheet","material":"1.5 mm aluminium","size":[500.0,90.0,1.5],"qty":2,"note":"","tool":"laser cut + press brake","stock":"1.5 mm sheet"},{"key":"S07","name":"Top vent grille","process":"sheet","material":"1.5 mm perforated aluminium","size":[480.0,480.0,1.5],"qty":1,"note":"Perforated stock from photos 1 & 2. Open area matters more than hole size \u2014 aim for 40%+ or it strangles the fans.","tool":"laser cut to outline","stock":"perforated sheet"},{"key":"S08","name":"Fan mounting plate","process":"sheet","material":"1.5 mm aluminium","size":[170.0,170.0,1.5],"qty":10,"note":"140 mm bore plus a 105 mm PCD of M4 clearance holes. The punched knockout plate in photo 3 is the same idea.","tool":"laser cut","stock":"1.5 mm sheet"},{"key":"E01","name":"Corner post","process":"saw","material":"25 x 25 aluminium extrusion","size":[25.0,25.0,800.0],"qty":4,"note":"Cut all four in one setup so they are identical \u2014 any difference here twists the whole case.","tool":"mitre saw, metal blade","stock":"2 m lengths"},{"key":"T01","name":"Cable tray \u2014 spine","process":"saw","material":"150 mm ladder tray","size":[150.0,60.0,780.0],"qty":1,"note":"Cut to length, deburr every cut strand, fit the printed end caps. Galvanised swarf in a running machine is a bad day.","tool":"angle grinder or tray cutter","stock":"3 m length"},{"key":"T02","name":"Tray rung","process":"saw","material":"tray rung stock or 25 x 3 flat bar","size":[150.0,25.0,3.0],"qty":4,"note":"Only if the tray's own rung pitch does not match the tier pitch \u2014 measure before ordering.","tool":"mitre saw","stock":"from offcut"},{"key":"M01","name":"Dust filter mesh","process":"misc","material":"nylon or aluminium mesh","size":[160.0,160.0,1.0],"qty":4,"note":"Cut squares to drop into the printed filter frames.","tool":"scissors / tin snips","stock":"mesh sheet"},{"key":"M02","name":"LED strip run","process":"misc","material":"addressable RGB strip","size":[10.0,5.0,760.0],"qty":4,"note":"Cut on the marked cut lines only, one run per corner post.","tool":"scissors","stock":"5 m reel"}],"fixings":[{"key":"F01","name":"M6 x 20 bolt, nut, washers","qty":32,"note":"Sled rails and clamps to the tray rungs."},{"key":"F02","name":"M3 x 6 motherboard standoff + screw","qty":36,"note":"Boards to the printed sled rails."},{"key":"F03","name":"M4 x 30 fan screw","qty":40,"note":"Fans through shroud into the mounting plate."},{"key":"F04","name":"M5 T-nut + button head for extrusion","qty":32,"note":"Corner brackets to the posts."},{"key":"F05","name":"M8 x 25 bolt + nyloc","qty":16,"note":"Casters and plinth corners."},{"key":"F06","name":"75 mm lockable caster, 50 kg+ rated","qty":4,"note":"All four braked, not two \u2014 the mass is high."},{"key":"F07","name":"Earth bonding lug + 4 mm\u00b2 green/yellow","qty":2,"note":"Tray and chassis to earth. Non-negotiable on a conductive frame holding mains gear."},{"key":"F08","name":"IEC PDU, switched, with C13 outlets","qty":1,"note":"One ingress for 4 PSUs. Sequenced switching if you can get it."},{"key":"F09","name":"Glass suction cup (pair)","qty":1,"note":"Hire or buy \u2014 do not hand-carry a 5 kg pane into a slot."},{"key":"F10","name":"Closed-cell foam glazing tape, 3 mm","qty":1,"note":"Between glass and any metal. Glass on bare metal cracks."},{"key":"F11","name":"VESA M4 screw set","qty":1,"note":"Display to the printed adapter plate."},{"key":"F12","name":"Cable ties / hook-and-loop","qty":1,"note":"Loom dressing down the tray."}],"totals":{"printed_pieces":103,"cut_pieces":43,"cut_line_items":17,"fixing_line_items":12,"total_pieces":146,"by_process":{"order":5,"sheet":21,"saw":9,"misc":8,"print":103},"assembly_steps":15,"assembly_hours":30.0},"printed_totals":{"part_count":149,"printed_part_count":103,"printed_bbox_volume_cm3":21178.4,"filament_grams_est":9145.0,"filament_spools_est":9.14,"filament_cost_est":274.35,"oversize_for_bed":[]},"warnings":[{"severity":"info","topic":"weight","text":"Estimated all-up mass ~60 kg (27 kg of that is glass). That is ~15 kg per caster \u2014 specify 75 mm casters rated 50 kg+ each, and lock them: the centre of mass is high."},{"severity":"major","topic":"stability","text":"1145 mm tall on a 500 mm base is a 2.3:1 ratio with the mass up high. Widen the base, add outrigger feet, or plan to strap it to a wall."}]}
+</script>
+<script>
+window.VAULT = JSON.parse(document.getElementById('vault-data').textContent);
+const D = window.VAULT;
+const $ = (id) => document.getElementById(id);
+const PROCESS_LABELS = {
+  order: ["Order in", "Cut and toughened by the supplier"],
+  saw: ["Saw cut", "Cut to length and deburred in the shop"],
+  sheet: ["Sheet metal", "Laser or CNC cut, folded on the brake"],
+  drill: ["Drill / punch", "Holes in bought stock"],
+  misc: ["Cut by hand", "Snips and a steady hand"],
+};
+const GROUP_FILL = {
+  Printed: "var(--accent)", Frame: "var(--steel)", Cooling: "var(--steel)",
+  Electronics: "var(--ink-2)", Glass: "var(--steel)", Lighting: "var(--accent)",
+};
+
+const partsByKey = new Map(D.parts.map((p) => [p.key, p]));
+let current = 1;
+let done = new Set();
+let saveState = () => {};
+
+/* ---------- header stats ---------- */
+function fillStats() {
+  const t = D.totals, p = D.params;
+  $("envelope").textContent = `${p.width} × ${p.depth} × ${p.height} mm`;
+  $("s-total").textContent = t.total_pieces;
+  $("s-print").textContent = t.printed_pieces;
+  $("s-cut").textContent = t.cut_pieces;
+  $("s-steps").textContent = t.assembly_steps;
+  $("s-hours").textContent = `${t.assembly_hours} h`;
+  $("s-filament").textContent =
+    `${(D.printed_totals.filament_grams_est / 1000).toFixed(1)} kg`;
+}
+
+/* ---------- step rail ---------- */
+function buildRail() {
+  $("rail").replaceChildren(...D.steps.map((step) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "rail-item";
+    row.dataset.no = String(step.no);
+
+    const tick = document.createElement("span");
+    tick.className = "tick";
+    tick.setAttribute("role", "checkbox");
+    tick.setAttribute("aria-checked", "false");
+    tick.setAttribute("aria-label", `Step ${step.no} done`);
+    tick.setAttribute("tabindex", "0");
+    tick.innerHTML = '<svg viewBox="0 0 12 12"><polyline points="2,6.4 4.6,9 10,3"/></svg>';
+    const flip = (e) => { e.stopPropagation(); e.preventDefault(); toggleDone(step.no); };
+    tick.addEventListener("click", flip);
+    tick.addEventListener("keydown", (e) => {
+      if (e.key === " " || e.key === "Enter") flip(e);
+    });
+
+    const no = document.createElement("span");
+    no.className = "rn";
+    no.textContent = String(step.no).padStart(2, "0");
+
+    const title = document.createElement("span");
+    title.className = "rt";
+    title.textContent = step.title;
+
+    row.append(tick, no, title);
+    row.addEventListener("click", () => show(step.no));
+    return row;
+  }));
+}
+
+function refreshRail() {
+  for (const row of $("rail").querySelectorAll(".rail-item")) {
+    const no = Number(row.dataset.no);
+    row.setAttribute("aria-current", no === current ? "true" : "false");
+    row.classList.toggle("done", done.has(no));
+    const tick = row.querySelector(".tick");
+    tick.setAttribute("aria-checked", done.has(no) ? "true" : "false");
+    tick.setAttribute("aria-pressed", done.has(no) ? "true" : "false");
+  }
+  const pct = Math.round((done.size / D.steps.length) * 100);
+  $("progress-bar").style.width = `${pct}%`;
+  $("progress-count").textContent = `${done.size} / ${D.steps.length} done`;
+  $("mark").textContent = done.has(current) ? "Mark not done" : "Mark done";
+}
+
+/* ---------- step detail ---------- */
+function chip(text, cls, title) {
+  const el = document.createElement("span");
+  el.className = `chip ${cls || ""}`.trim();
+  el.textContent = text;
+  if (title) el.title = title;
+  return el;
+}
+
+function kitSection(heading, nodes) {
+  if (!nodes.length) return null;
+  const section = document.createElement("section");
+  const h = document.createElement("h3");
+  h.textContent = heading;
+  const chips = document.createElement("div");
+  chips.className = "chips";
+  chips.append(...nodes);
+  section.append(h, chips);
+  return section;
+}
+
+function show(no) {
+  const step = D.steps.find((s) => s.no === no);
+  if (!step) return;
+  current = no;
+
+  $("step-no").textContent = `STEP ${String(no).padStart(2, "0")}`;
+  $("step-title").textContent = step.title;
+  const counts = [];
+  if (step.parts.length) {
+    counts.push(`${step.parts.length} printed part${step.parts.length > 1 ? "s" : ""}`);
+  }
+  if (step.cut.length) {
+    counts.push(`${step.cut.length} cut item${step.cut.length > 1 ? "s" : ""}`);
+  }
+  $("step-meta").textContent = [step.time, ...counts].join(" · ");
+
+  $("step-detail").replaceChildren(...step.detail.map((line) => {
+    const li = document.createElement("li");
+    const span = document.createElement("span");
+    span.textContent = line;
+    li.append(span);
+    return li;
+  }));
+
+  $("step-warning").hidden = !step.warning;
+  if (step.warning) $("step-warning-text").textContent = step.warning;
+
+  // Printed parts collapse to one chip per family — 16 rung clamps is one line.
+  const families = new Map();
+  for (const key of step.parts) {
+    const part = partsByKey.get(key);
+    const name = (part && (part.family || part.name)) || key;
+    families.set(name, (families.get(name) || 0) + 1);
+  }
+  const printedChips = [...families].map(([name, n]) =>
+    chip(n > 1 ? `${name} ×${n}` : name, "p"));
+  const cutChips = step.cut.map((ref) => {
+    const item = D.cut.find((c) => c.key === ref);
+    return chip(item ? `${ref} · ${item.name}` : ref, "c",
+      item ? `${item.qty} off · ${item.material}` : "");
+  });
+  const toolChips = (step.tools || []).map((t) => chip(t, "t"));
+
+  $("step-kit").replaceChildren(...[
+    kitSection("Printed parts", printedChips),
+    kitSection("Cut parts", cutChips),
+    kitSection("Tools", toolChips),
+  ].filter(Boolean));
+
+  $("prev").disabled = no === 1;
+  $("next").disabled = no === D.steps.length;
+  drawElevation(step);
+  refreshRail();
+}
+
+/* ---------- front elevation, drawn from the real part positions ---------- */
+function drawElevation(step) {
+  const svg = $("elevation");
+  const installed = new Set(step.visible);
+  const isNew = new Set(step.parts);
+  const ns = "http://www.w3.org/2000/svg";
+  const pad = 70;
+
+  let minX = Infinity, maxX = -Infinity, maxZ = -Infinity;
+  for (const p of D.parts) {
+    minX = Math.min(minX, p.pos[0] - p.size[0] / 2);
+    maxX = Math.max(maxX, p.pos[0] + p.size[0] / 2);
+    maxZ = Math.max(maxZ, p.pos[2] + p.size[2] / 2);
+  }
+  svg.setAttribute("viewBox",
+    `${minX - pad} ${-maxZ - pad} ${maxX - minX + pad * 2.4} ${maxZ + pad * 2}`);
+  svg.replaceChildren();
+
+  // Far parts first, so the glass reads as being in front of the guts.
+  for (const p of [...D.parts].sort((a, b) => b.pos[1] - a.pos[1])) {
+    const rect = document.createElementNS(ns, "rect");
+    rect.setAttribute("x", String(p.pos[0] - p.size[0] / 2));
+    rect.setAttribute("y", String(-(p.pos[2] + p.size[2] / 2)));
+    rect.setAttribute("width", String(Math.max(p.size[0], 3)));
+    rect.setAttribute("height", String(Math.max(p.size[2], 3)));
+    rect.setAttribute("rx", "2");
+
+    if (!installed.has(p.key)) {
+      rect.setAttribute("fill", "none");
+      rect.setAttribute("stroke", "var(--rule)");
+      rect.setAttribute("stroke-width", "1.8");
+      rect.setAttribute("stroke-dasharray", "8 8");
+      rect.setAttribute("opacity", "0.55");
+    } else {
+      const fill = GROUP_FILL[p.group] || "var(--ink-2)";
+      rect.setAttribute("fill", fill);
+      rect.setAttribute("fill-opacity", p.group === "Glass" ? "0.13" : "0.82");
+      rect.setAttribute("stroke", isNew.has(p.key) ? "var(--accent-ink)" : fill);
+      rect.setAttribute("stroke-width", isNew.has(p.key) ? "6" : "1.2");
+    }
+    const title = document.createElementNS(ns, "title");
+    title.textContent =
+      `${p.key} — ${p.name} · ${p.size[0]} × ${p.size[1]} × ${p.size[2]} mm`;
+    rect.append(title);
+    svg.append(rect);
+  }
+
+  const floor = document.createElementNS(ns, "line");
+  floor.setAttribute("x1", String(minX - pad / 2));
+  floor.setAttribute("x2", String(maxX + pad / 2));
+  floor.setAttribute("y1", "0");
+  floor.setAttribute("y2", "0");
+  floor.setAttribute("stroke", "var(--rule)");
+  floor.setAttribute("stroke-width", "3");
+  svg.append(floor);
+
+  const dim = document.createElementNS(ns, "text");
+  const dimX = maxX + 40, dimY = -maxZ / 2;
+  dim.setAttribute("x", String(dimX));
+  dim.setAttribute("y", String(dimY));
+  dim.setAttribute("fill", "var(--muted)");
+  dim.setAttribute("font-family", "IBM Plex Mono, monospace");
+  dim.setAttribute("font-size", "30");
+  dim.setAttribute("text-anchor", "middle");
+  dim.setAttribute("transform", `rotate(-90 ${dimX} ${dimY})`);
+  dim.textContent = `${D.params.height} mm overall`;
+  svg.append(dim);
+
+  $("elev-cap").textContent =
+    `${installed.size} of ${D.parts.length} parts fitted · ` +
+    `${step.parts.length} printed part${step.parts.length === 1 ? "" : "s"} added here · ` +
+    `heavy outline = new, dashed = still to come`;
+}
+
+/* ---------- fabrication tables ---------- */
+function table(title, sub, headers, rows, notes) {
+  const wrap = document.createElement("div");
+  wrap.className = "tablewrap";
+  const t = document.createElement("table");
+  const caption = document.createElement("caption");
+  caption.textContent = title;
+  const span = document.createElement("span");
+  span.textContent = sub;
+  caption.append(span);
+
+  const thead = document.createElement("thead");
+  const hr = document.createElement("tr");
+  for (const h of headers) {
+    const th = document.createElement("th");
+    if (typeof h === "string") {
+      th.textContent = h;
+    } else {
+      th.textContent = h.text;
+      if (h.num) th.className = "num";
+    }
+    hr.append(th);
+  }
+  thead.append(hr);
+
+  const tbody = document.createElement("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    for (const cell of row) {
+      const td = document.createElement("td");
+      if (cell && typeof cell === "object") {
+        if (cell.badge) {
+          const badge = document.createElement("span");
+          badge.className = `badge ${cell.badge}`;
+          badge.textContent = cell.text;
+          td.append(badge);
+        } else {
+          td.textContent = cell.text;
+        }
+        if (cell.cls) td.className = cell.cls;
+      } else {
+        td.textContent = cell;
+      }
+      tr.append(td);
+    }
+    tbody.append(tr);
+  }
+
+  t.append(caption, thead, tbody);
+  wrap.append(t);
+
+  if (notes && notes.length) {
+    const ul = document.createElement("ul");
+    ul.className = "hint";
+    ul.style.margin = "10px 14px 14px";
+    ul.style.paddingLeft = "18px";
+    for (const note of notes) {
+      const li = document.createElement("li");
+      li.textContent = note;
+      ul.append(li);
+    }
+    wrap.append(ul);
+  }
+  return wrap;
+}
+
+function fabTables() {
+  const frag = document.createDocumentFragment();
+
+  for (const [process, [label, blurb]] of Object.entries(PROCESS_LABELS)) {
+    const rows = D.cut.filter((c) => c.process === process);
+    if (!rows.length) continue;
+    frag.append(table(
+      label,
+      `${blurb} — ${rows.reduce((n, r) => n + r.qty, 0)} pieces`,
+      ["Ref", "Part", { text: "Qty", num: true }, "Size (mm)", "Material",
+        "Stock / tooling"],
+      rows.map((r) => [
+        { text: r.key, cls: "ref" }, r.name, { text: r.qty, cls: "num" },
+        { text: `${r.size[0]} × ${r.size[1]} × ${r.size[2]}`, cls: "dim" },
+        r.material, r.stock || r.tool,
+      ]),
+      rows.filter((r) => r.note).map((r) => `${r.key} — ${r.note}`),
+    ));
+  }
+
+  const fams = new Map();
+  for (const p of D.parts.filter((x) => x.printed)) {
+    const name = p.family || p.name;
+    if (!fams.has(name)) fams.set(name, { part: p, n: 0 });
+    fams.get(name).n += 1;
+  }
+  frag.append(table(
+    "3D printed",
+    `${D.totals.printed_pieces} pieces across ${fams.size} part types · ` +
+    `${(D.printed_totals.filament_grams_est / 1000).toFixed(1)} kg of filament, upper bound`,
+    ["Part", { text: "Qty", num: true }, "Size (mm)", "Material", "Layer",
+      { text: "Infill", num: true }, "Support", "Status"],
+    [...fams].map(([name, { part, n }]) => [
+      name, { text: n, cls: "num" },
+      { text: `${part.size[0]} × ${part.size[1]} × ${part.size[2]}`, cls: "dim" },
+      part.profile.material || "—",
+      part.profile.layer_mm === undefined ? "—" : `${part.profile.layer_mm} mm`,
+      { text: `${part.profile.infill_pct ?? "—"}%`, cls: "num" },
+      part.profile.supports ? "yes" : "no",
+      { text: part.profile.draft ? "needs CAD" : "ready",
+        badge: part.profile.draft ? "draft" : "ready" },
+    ]),
+    ["Draft parts are massing models — right envelope and position, no fastener " +
+     "geometry. Dimension them against the real hardware before printing for fit."],
+  ));
+
+  frag.append(table(
+    "Bought in",
+    `${D.fixings.length} lines — not fabricated, but the build stops without them`,
+    ["Ref", "Item", { text: "Qty", num: true }, "Notes"],
+    D.fixings.map((f) => [
+      { text: f.key, cls: "ref" }, f.name, { text: f.qty, cls: "num" }, f.note,
+    ]),
+  ));
+
+  $("fab-tables").replaceChildren(frag);
+}
+
+/* ---------- checks ---------- */
+function checks() {
+  $("checks").replaceChildren(...D.warnings.map((w) => {
+    const el = document.createElement("div");
+    el.className = `check ${w.severity}`;
+    const sev = document.createElement("div");
+    sev.className = "sev";
+    sev.textContent = w.severity;
+    const body = document.createElement("div");
+    const topic = document.createElement("span");
+    topic.className = "topic";
+    topic.textContent = `${w.topic}. `;
+    body.append(topic, document.createTextNode(w.text));
+    el.append(sev, body);
+    return el;
+  }));
+}
+
+/* ---------- tabs ---------- */
+function wireTabs() {
+  const map = {
+    "tab-build": "panel-build", "tab-fab": "panel-fab", "tab-checks": "panel-checks",
+  };
+  for (const tabId of Object.keys(map)) {
+    $(tabId).addEventListener("click", () => {
+      for (const [t, p] of Object.entries(map)) {
+        const on = t === tabId;
+        $(t).setAttribute("aria-selected", on ? "true" : "false");
+        $(p).hidden = !on;
+      }
+    });
+  }
+}
+
+/* ---------- progress, persisted ---------- */
+function toggleDone(no) {
+  if (done.has(no)) done.delete(no); else done.add(no);
+  refreshRail();
+  saveState();
+}
+
+function readLocal() {
+  try {
+    const raw = localStorage.getItem("hec-progress");
+    if (raw) done = new Set(JSON.parse(raw));
+  } catch (e) { /* private window — progress simply won't persist */ }
+}
+
+function writeLocal() {
+  try {
+    localStorage.setItem("hec-progress", JSON.stringify([...done]));
+  } catch (e) { /* ignore */ }
+}
+
+async function wirePersistence() {
+  readLocal();
+  saveState = writeLocal;
+  refreshRail();
+
+  const db = window.claude ? await window.claude.use("db") : null;
+  if (!db) {
+    $("sync-note").textContent = "Ticks are saved in this browser only.";
+    return;
+  }
+
+  const doc = db.doc("build/progress");
+  let applying = false;
+  doc.onSnapshot(
+    (snap) => {
+      const data = snap.exists ? snap.data() : null;
+      if (!data || !Array.isArray(data.steps)) return;
+      applying = true;
+      done = new Set(data.steps);
+      refreshRail();
+      applying = false;
+    },
+    () => { $("sync-note").textContent = "Sync stopped — ticks are local for now."; },
+  );
+
+  saveState = () => {
+    writeLocal();
+    if (applying) return;
+    doc.set({ steps: [...done], updatedAt: new Date().toISOString() })
+      .catch(() => { $("sync-note").textContent = "Could not sync — ticks are local."; });
+  };
+  $("sync-note").textContent = "Ticks sync across your devices.";
+}
+
+/* ---------- go ---------- */
+fillStats();
+buildRail();
+fabTables();
+checks();
+wireTabs();
+show(1);
+
+$("prev").addEventListener("click", () => show(Math.max(1, current - 1)));
+$("next").addEventListener("click", () => show(Math.min(D.steps.length, current + 1)));
+$("mark").addEventListener("click", () => toggleDone(current));
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, textarea")) return;
+  if (e.key === "ArrowLeft") $("prev").click();
+  if (e.key === "ArrowRight") $("next").click();
+});
+
+wirePersistence();
+
+</script>

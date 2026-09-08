@@ -203,3 +203,14 @@ manufacturing CAD — no fasteners, no fillets, no sheet-metal bend allowances,
 no real tray profile. Use it to settle the layout, check fit, print the
 brackets, and make the exploded animation; use measured CAD for anything that
 gets cut in metal or glass.
+
+## Build sheet (interactive)
+
+`build_sheet.html` is the shop-floor version: the 15-step sequence with a live
+front elevation showing what is installed at each step, the full fabrication
+manifest (order / saw / sheet / print / hand-cut, plus bought-in hardware), and
+the model's own checks. Ticks persist, and sync across devices when it is opened
+as a published artifact.
+
+It is generated from the same data as everything else — regenerate the payload
+with `python3 fabrication.py --preset resolved --json` if parameters change.
