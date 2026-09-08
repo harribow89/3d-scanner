@@ -133,7 +133,7 @@ def upgrade_materials():
     recipes = {
         # Tint is the transmission colour, so it darkens everything seen
         # through it: a near-black base renders as a black box, not glass.
-        "HEC_glass": {"base": (0.58, 0.63, 0.65, 1.0), "rough": 0.02,
+        "HEC_glass": {"base": (0.46, 0.52, 0.54, 1.0), "rough": 0.03,
                       "metal": 0.0, "transmission": 1.0, "ior": 1.52},
         "HEC_alu": {"base": (0.72, 0.74, 0.78, 1.0), "rough": 0.22, "metal": 1.0,
                     "bump": (900.0, 0.06)},
@@ -153,7 +153,7 @@ def upgrade_materials():
         # became a light trap and the corners rendered dead.
         "HEC_diffuser": {"base": (0.97, 0.98, 0.99, 1.0), "rough": 0.12, "metal": 0.0,
                          "transmission": 1.0, "ior": 1.02},
-        "HEC_led": {"base": (0.25, 0.85, 0.80, 1.0), "emission": 220.0},
+        "HEC_led": {"base": (0.25, 0.85, 0.80, 1.0), "emission": 120.0},
     }
 
     for name, recipe in recipes.items():
@@ -201,8 +201,12 @@ def add_bevels(width_mm=0.6, segments=2):
     has a catch of light along every edge.
     """
     width = width_mm * 0.001
+    glazing = {"HEC_glass", "HEC_diffuser"}
     for obj in bpy.context.scene.objects:
         if obj.type != 'MESH' or obj.name.startswith(STUDIO_PREFIX):
+            continue
+        if obj.data.materials and any(m and m.name in glazing
+                                      for m in obj.data.materials):
             continue
         if not any(m.type == 'BEVEL' for m in obj.modifiers):
             bevel = obj.modifiers.new("StudioBevel", 'BEVEL')
@@ -242,6 +246,50 @@ def clear_studio():
         bpy.data.objects.remove(obj, do_unlink=True)
 
 
+OUTBOARD_PREFIXES = ("11_", "12_", "P10_", "P13_", STUDIO_PREFIX)
+
+
+def _cabinet_bounds(scene):
+    """Bounds of the case itself — the display and its arm hang outside it."""
+    corners = []
+    for obj in scene.objects:
+        if obj.type != 'MESH' or obj.name.startswith(OUTBOARD_PREFIXES):
+            continue
+        corners.extend(obj.matrix_world @ Vector(c) for c in obj.bound_box)
+    if not corners:
+        return Vector((0, 0, 0)), 1.0, 1.0
+    lo = Vector((min(c.x for c in corners), min(c.y for c in corners),
+                 min(c.z for c in corners)))
+    hi = Vector((max(c.x for c in corners), max(c.y for c in corners),
+                 max(c.z for c in corners)))
+    span = hi - lo
+    return (lo + hi) * 0.5, min(span.x, span.y), span.z
+
+
+def glass_casts_no_shadow(scene=None):
+    """
+    Let the lamps light the inside of the case.
+
+    Light reaching a surface *through* a refractive panel is a caustic path,
+    and Cycles cannot sample it with next-event estimation — so a sealed glass
+    cabinet renders with a pitch-black interior no matter how bright the studio
+    is. Turning off shadow visibility on the glazing lets light straight in
+    while the camera still sees the panes, their tint and their reflections.
+    It is the standard trick for product shots of anything behind glass.
+    """
+    scene = scene or bpy.context.scene
+    glazing = {"HEC_glass", "HEC_diffuser"}
+    count = 0
+    for obj in scene.objects:
+        if obj.type != 'MESH' or not obj.data.materials:
+            continue
+        if any(m and m.name in glazing for m in obj.data.materials):
+            if hasattr(obj, "visible_shadow"):
+                obj.visible_shadow = False
+                count += 1
+    return count
+
+
 def _interior_fill(scene, centre, radius, night=False):
     """Emissive panels inside the case, hidden from camera and refraction."""
     material = bpy.data.materials.get(STUDIO_PREFIX + "Fill")
@@ -251,16 +299,18 @@ def _interior_fill(scene, centre, radius, night=False):
         bsdf = _principled(material)
         if bsdf:
             _set(bsdf, ("Emission Color", "Emission"), (1.0, 0.97, 0.92, 1.0))
-            _set(bsdf, ("Emission Strength",), 3.0 if night else 9.0)
+            _set(bsdf, ("Emission Strength",), 1.5 if night else 2.5)
             _set(bsdf, ("Base Color",), (0.0, 0.0, 0.0, 1.0))
 
-    for level in (0.55, 0.0, -0.55):
-        bpy.ops.mesh.primitive_cube_add(size=radius * 1.15,
-                                        location=(centre.x, centre.y,
-                                                  centre.z + radius * level))
+    case_centre, case_width, case_height = _cabinet_bounds(scene)
+    for level in (0.28, 0.0, -0.28):
+        bpy.ops.mesh.primitive_cube_add(
+            size=case_width * 0.7,
+            location=(case_centre.x, case_centre.y,
+                      case_centre.z + case_height * level))
         panel = bpy.context.active_object
         panel.name = f"{STUDIO_PREFIX}Fill_{level:+.2f}"
-        panel.scale = (1.0, 1.0, 0.03)
+        panel.scale = (1.0, 1.0, 0.02)
         panel.data.materials.append(material)
         for ray_type in ("visible_camera", "visible_glossy", "visible_transmission",
                          "visible_diffuse"):
@@ -355,41 +405,52 @@ def place_camera(view: str, scene=None):
     return camera
 
 
+def _use_engine(render, engine: str) -> bool:
+    """
+    Try to select a render engine and confirm it took.
+
+    Do NOT test membership of RenderSettings.bl_rna's engine enum first: that
+    enum lists only the built-in engines, so Cycles — which registers as an
+    add-on — never appears in it. Checking it silently sends every render to
+    EEVEE, whose screen-space refraction cannot see through a glass slab to
+    what is behind it, which is exactly how this project ended up with a
+    pitch-black glass cabinet for a dozen renders.
+    """
+    try:
+        render.engine = engine
+    except (TypeError, ValueError):
+        return False
+    return render.engine == engine
+
+
 def configure_render(scene=None, samples=192, resolution=2000, engine="CYCLES"):
     scene = scene or bpy.context.scene
     render = scene.render
-    available = set()
-    try:
-        available = {i.identifier for i in
-                     bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items}
-    except Exception:
-        pass
 
-    if engine == "CYCLES" and "CYCLES" in available:
-        render.engine = 'CYCLES'
+    using_cycles = engine.upper() == "CYCLES" and _use_engine(render, 'CYCLES')
+    if using_cycles:
         cycles = getattr(scene, "cycles", None)
         if cycles:
             cycles.samples = samples
             cycles.use_denoising = True
-            cycles.max_bounces = 16
-            cycles.transmission_bounces = 12
-            cycles.transparent_max_bounces = 16
+            cycles.max_bounces = 24
+            cycles.transmission_bounces = 24
+            cycles.transparent_max_bounces = 24
             cycles.use_adaptive_sampling = True
-            # Use a GPU if one is configured; harmless if not.
             try:
                 cycles.device = 'GPU'
             except Exception:
                 pass
     else:
         for candidate in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE"):
-            if candidate in available:
-                render.engine = candidate
+            if _use_engine(render, candidate):
                 break
         eevee = getattr(scene, "eevee", None)
         if eevee:
             if hasattr(eevee, "taa_render_samples"):
                 eevee.taa_render_samples = max(64, samples)
-            for attr in ("use_ssr", "use_ssr_refraction", "use_gtao", "use_bloom"):
+            for attr in ("use_ssr", "use_ssr_refraction", "use_gtao", "use_bloom",
+                         "use_raytracing"):
                 if hasattr(eevee, attr):
                     setattr(eevee, attr, True)
 
@@ -448,3 +509,5 @@ def prepare(layer_bevels=True):
     upgrade_materials()
     if layer_bevels:
         add_bevels()
+    panes = glass_casts_no_shadow()
+    print(f"[HEC] glazing set to cast no shadow on {panes} object(s)")
