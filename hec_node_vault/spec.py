@@ -48,6 +48,8 @@ PARAMS = {
     "gpu_length": 300.0,
     "gpu_height": 120.0,
     "gpu_thickness": 40.0,
+    "gpu_riser_height": 20.0,   # how far the card sits above the board
+    "cpu_cooler_height": 79.0,  # tower cooler, matching the detail model
 
     # Cooling
     "fan_size": 120.0,
@@ -674,7 +676,21 @@ def validate(params=None) -> list:
                      f"{p['tier_pitch']:.0f} mm. Raise the pitch to ~{stack + 25:.0f} mm "
                      f"(and the envelope with it) or lay the GPUs flat on risers.")})
 
-    # 3. GPU length against the internal width.
+    # 3. Does the cooler fit under the card?
+    cooler_top = p["standoff_height"] + p["board_thickness"] + p["cpu_cooler_height"]
+    gpu_bottom = p["standoff_height"] + p["board_thickness"] + p["gpu_riser_height"]
+    if cooler_top > gpu_bottom:
+        needed = p["cpu_cooler_height"] + 10.0
+        warnings.append({
+            "severity": "major", "topic": "fit",
+            "text": (f"A {p['cpu_cooler_height']:.0f} mm tower cooler reaches "
+                     f"{cooler_top:.0f} mm above the tray, but the card sits at "
+                     f"{gpu_bottom:.0f} mm — they occupy the same space. Fit "
+                     f"low-profile coolers (~45 mm), raise the card to "
+                     f"{needed:.0f} mm on taller risers, or offset the card so it "
+                     f"clears the cooler in plan.")})
+
+    # 4. GPU length against the internal width.
     if p["gpu_length"] > W - 2 * p["glass_thickness"] - 30.0:
         warnings.append({
             "severity": "major", "topic": "fit",
@@ -682,7 +698,7 @@ def validate(params=None) -> list:
                      f"envelope once glass and brackets are in. Widen to "
                      f"~{p['gpu_length'] + 60:.0f} mm or fit shorter cards.")})
 
-    # 4. Airflow: can the fans actually shift the heat?
+    # 5. Airflow: can the fans actually shift the heat?
     node_w = POWER["cpu"] + POWER["gpu"] + POWER["board_and_drives"]
     total_w = node_w * n / POWER["psu_efficiency"]
     delta_t = 15.0
@@ -704,7 +720,7 @@ def validate(params=None) -> list:
                      f"{max(1, int(-(-cfm_needed // (100.0 * 0.55))))} x 140 mm "
                      f"high-static-pressure fans, or accept a bigger temperature rise.")})
 
-    # 5. Electrical load.
+    # 6. Electrical load.
     amps = total_w / 230.0
     if amps > 9.0:
         warnings.append({
@@ -714,7 +730,7 @@ def validate(params=None) -> list:
                      f"its own circuit (or two), and inrush from five PSUs starting "
                      f"together will nuisance-trip a Type B RCBO; specify Type C.")})
 
-    # 6. Weight on the casters.
+    # 7. Weight on the casters.
     glass_area = 2 * (W * lv["glazed_height"]) + 2 * (D * lv["glazed_height"]) + (W * D)
     glass_kg = (glass_area * p["glass_thickness"] / 1e9) * MASSES["glass_density"]
     psu_kg = MASSES["psu_atx"] if p["psu_form"] == "ATX" else MASSES["psu_sfx"]
@@ -727,7 +743,7 @@ def validate(params=None) -> list:
                  f"glass). That is ~{total_kg / 4:.0f} kg per caster — specify 75 mm "
                  f"casters rated 50 kg+ each, and lock them: the centre of mass is high.")})
 
-    # 7. Tall glass box stability.
+    # 8. Tall glass box stability.
     if p["height"] / min(W, D) > 2.0:
         warnings.append({
             "severity": "major", "topic": "stability",

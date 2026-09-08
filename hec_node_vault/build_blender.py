@@ -8,7 +8,7 @@
         --preset resolved --save vault.blend --export-stl printed/ \
         --fabrication FABRICATION.md --assembly ASSEMBLY.md
 
-    # photoreal product shots, and the assembly sequence as images
+    # add fan blades, connectors, board components and cables (implied by --render)
     blender --background -P build_blender.py -- --preset resolved \
         --render shots/ --views hero,front,detail,night --samples 256
     blender --background -P build_blender.py -- --preset resolved \
@@ -419,6 +419,14 @@ def main():
     if stl_dir:
         written = export_printed_stls(stl_dir)
         print(f"[HEC] {len(written)} STL(s) -> {stl_dir}")
+
+    if (_flag("--detail") or _arg("--render") or _arg("--render-steps")) \
+            and not _flag("--no-detail"):
+        import detail
+        counts = detail.apply_all(spec)
+        print(f"[HEC] detail: {counts['objects']} objects — {counts['fans']} fans, "
+              f"{counts['gpus']} cards, {counts['boards']} boards, "
+              f"{counts['psus']} PSUs, {counts['cables']} cable runs")
 
     if _flag("--studio") or _arg("--render") or _arg("--render-steps"):
         import render_studio
