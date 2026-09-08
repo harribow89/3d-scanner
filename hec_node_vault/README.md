@@ -13,8 +13,12 @@ Built from the design brief and the 28 part photos. Companion to
 |------|------------|
 | `spec.py` | Every dimension, position and explode vector, in millimetres. Pure Python — runs without Blender. Also does the fit / thermal / electrical / weight checks. |
 | `build_blender.py` | Turns the spec into Blender objects, wires the explode slider, exports STLs and the manifest. |
-| `manifest_brief.md` | Printed-parts manifest + checks for the brief as written. |
-| `manifest_resolved.md` | Same for the `resolved` preset (blockers designed out). |
+| `fabrication.py` | The full fabrication manifest — printed **and** cut parts, cut list, bought-in fixings — plus the 15-step assembly sequence. Pure Python. |
+| `render_studio.py` | Photoreal product rendering: real materials, bevels, studio lighting, Cycles. |
+| `FABRICATION.md` | Every fabricated piece for the `resolved` preset, grouped by process. |
+| `ASSEMBLY.md` | Step-by-step build sequence. |
+| `manifest_brief.md` / `manifest_resolved.md` | Printed-parts manifests per preset. |
+| `FABRICATION_brief.md` | Fabrication manifest for the brief as written. |
 
 ## Run it
 
@@ -40,6 +44,36 @@ exploded-assembly animation for the build video.
 blender --background --factory-startup -P build_blender.py -- \
     --preset resolved --save vault.blend \
     --export-stl printed/ --manifest manifest.md
+```
+
+**Photoreal product shots:**
+
+```bash
+blender --background -P build_blender.py -- --preset resolved \
+    --render shots/ --views hero,front,detail,night --samples 256 --res 2400
+```
+
+Real materials (tinted glass with absorption, brushed aluminium, powder coat,
+PETG with visible layer lines, emissive RGB), bevelled edges, a seamless
+backdrop, four-light softbox rig and a depth-of-field camera, in Cycles. The
+`night` view drops the key light so the corner lighting carries the shot.
+Budget 10-30 minutes per frame at 256 samples on the desktop's GPU; drop to
+`--samples 96 --engine EEVEE` for a fast look.
+
+**The assembly sequence as images:**
+
+```bash
+blender --background -P build_blender.py -- --preset resolved --render-steps steps/
+```
+
+One image per build step from a fixed camera, each showing everything installed
+up to that point — the machine growing, not a gallery of loose parts.
+
+**Fabrication paperwork:**
+
+```bash
+python3 fabrication.py --preset resolved --manifest > FABRICATION.md
+python3 fabrication.py --preset resolved --assembly > ASSEMBLY.md
 ```
 
 **Just the numbers, no Blender:**
@@ -84,6 +118,21 @@ written:
 `--preset resolved` clears every blocker. Stability stays flagged — a tall glass
 tower is inherently tippy, and that wants outriggers rather than a parameter
 change.
+
+## What gets fabricated
+
+146 pieces on the `resolved` preset: **103 printed**, **43 cut**, plus 12 lines
+of bought-in hardware. `FABRICATION.md` has the lot, grouped by process:
+
+| Process | Pieces | What |
+|---------|-------:|------|
+| Order in | 5 | The glass — 4 panes + top, cut and toughened by the supplier |
+| Saw cut | 9 | Corner posts, tray spine, extra rungs |
+| Sheet metal | 21 | Plinth shell and decks, top cap, vent grille, fan plates |
+| 3D print | 103 | The bracketry — see below |
+| Cut by hand | 8 | Filter mesh, LED strip runs |
+
+Estimated build time is ~30 hours across 15 steps.
 
 ## The printed parts
 
