@@ -37,20 +37,77 @@ import time
 from typing import Callable, Optional
 
 
+# Explicit override for an install the search below can't see (WSL shims, a
+# portable checkout, a per-machine path).  Set SCANNER_CLAUDE_BIN to the full
+# path of the binary, e.g. C:\Users\me\.local\bin\claude.exe.
+_CLAUDE_BIN_ENV = "SCANNER_CLAUDE_BIN"
+
+
+def _claude_search_dirs() -> tuple:
+    """Directories to probe for the Claude Code CLI, in preference order."""
+    home = os.path.expanduser("~")
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA", "")
+        local = os.environ.get("LOCALAPPDATA", "")
+        progfiles = os.environ.get("ProgramFiles", "")
+        cands = [
+            # Native Windows installer (irm https://claude.ai/install.ps1 | iex)
+            os.path.join(home, ".local", "bin"),
+            os.path.join(local, "Programs", "claude") if local else "",
+            # npm install -g @anthropic-ai/claude-code
+            os.path.join(appdata, "npm") if appdata else "",
+            os.path.join(local, "npm") if local else "",
+            os.path.join(progfiles, "nodejs") if progfiles else "",
+        ]
+        return tuple(d for d in cands if d)
+    return (
+        os.path.join(home, ".local", "bin"),
+        "/usr/local/bin",
+    )
+
+
+def _executable_in(directory: str) -> Optional[str]:
+    """Return the claude executable inside `directory`, or None.
+
+    On Windows we check extensions explicitly rather than leaning on PATHEXT so
+    that a real `claude.exe` wins over an `npm`-style `claude.cmd` shim: passing
+    our long multi-line system prompt through a batch shim means it is re-parsed
+    by cmd.exe, which mangles quotes and newlines.
+    """
+    names = ("claude.exe", "claude.cmd", "claude.bat", "claude") if os.name == "nt" else ("claude",)
+    for name in names:
+        cand = os.path.join(directory, name)
+        if os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
 def _find_claude_cli() -> Optional[str]:
     """Locate the Claude Code CLI binary, if installed.
 
     Lets the agent run through the user's existing Claude Code auth
-    (`claude -p`) instead of a raw ANTHROPIC_API_KEY.
+    (`claude -p`) instead of a raw ANTHROPIC_API_KEY.  Searches, in order:
+    $SCANNER_CLAUDE_BIN, PATH, then the usual per-platform install locations
+    (Windows: %USERPROFILE%\\.local\\bin, %LOCALAPPDATA%\\Programs\\claude,
+    %APPDATA%\\npm; POSIX: ~/.local/bin, /usr/local/bin).
     """
+    override = os.environ.get(_CLAUDE_BIN_ENV, "").strip().strip('"')
+    if override:
+        if os.path.isfile(override) and os.access(override, os.X_OK):
+            return override
+        # A bare command name is also acceptable — resolve it against PATH.
+        resolved = shutil.which(override)
+        if resolved:
+            return resolved
+
+    # shutil.which() applies PATHEXT on Windows, so this finds claude.exe/.cmd.
     found = shutil.which("claude")
     if found:
         return found
-    for cand in (
-        os.path.expanduser("~/.local/bin/claude"),
-        "/usr/local/bin/claude",
-    ):
-        if os.path.exists(cand):
+
+    for directory in _claude_search_dirs():
+        cand = _executable_in(directory)
+        if cand:
             return cand
     return None
 
@@ -225,10 +282,12 @@ class AIAgentController:
         if self.provider == "claude_cli":
             self._claude_bin = _find_claude_cli()
             if not self._claude_bin:
+                looked = ", ".join(_claude_search_dirs())
                 raise RuntimeError(
                     "provider 'claude_cli' requested but the 'claude' CLI was not "
-                    "found on PATH (looked for ~/.local/bin/claude). Install Claude "
-                    "Code or set ANTHROPIC_API_KEY / OPENAI_API_KEY instead."
+                    f"found on PATH (also looked in: {looked}). Install Claude Code, "
+                    f"point {_CLAUDE_BIN_ENV} at the binary, or set "
+                    "ANTHROPIC_API_KEY / OPENAI_API_KEY instead."
                 )
             # Map the configured model to a CLI alias (claude -p --model <alias>).
             self._cli_model = CLAUDE_CLI_MODEL

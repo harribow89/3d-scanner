@@ -140,9 +140,16 @@ The agent reads `SCANNER_SKILL` at startup — a prompt that describes scanner m
 - **`claude_cli` (no API key needed)** — routes each tick through the local
   **Claude Code CLI** (`claude -p`), using your existing Claude Code auth instead
   of a raw key. This is the **automatic fallback** when neither `ANTHROPIC_API_KEY`
-  nor `OPENAI_API_KEY` is set and a `claude` binary is found (searches `PATH`,
-  then `~/.local/bin/claude`, `/usr/local/bin/claude`). Force it explicitly with
-  `provider="claude_cli"`.
+  nor `OPENAI_API_KEY` is set and a `claude` binary is found. Force it explicitly
+  with `provider="claude_cli"`.
+  - Binary discovery (`_find_claude_cli`) checks, in order: the
+    `SCANNER_CLAUDE_BIN` env var (full path, or a bare command name resolved
+    against `PATH`), then `PATH` itself, then the per-platform install dirs —
+    POSIX: `~/.local/bin`, `/usr/local/bin`; Windows: `%USERPROFILE%\.local\bin`
+    (native installer), `%LOCALAPPDATA%\Programs\claude`, `%APPDATA%\npm`,
+    `%LOCALAPPDATA%\npm`, `%ProgramFiles%\nodejs` (npm global installs).
+    On Windows a real `claude.exe` is preferred over a `claude.cmd` shim —
+    the long multi-line skill prompt gets mangled when cmd.exe re-parses it.
   - Model alias is `haiku` by default (cheap/fast for the ~4 s loop); override with
     the `SCANNER_CLAUDE_CLI_MODEL` env var (e.g. `sonnet`).
   - The skill prompt is passed via `--append-system-prompt`; the rolling
@@ -181,8 +188,25 @@ If niviewer freezes or shows no frames, the camera is not detected.
 No API key is required if the **Claude Code CLI** is installed — the agent falls
 back to `claude -p` automatically (see "LLM provider selection" above). If you
 *do* want the SDK path, set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. If the agent
-is silent, check: the `claude` binary is on `PATH` (or `~/.local/bin/claude`) and
-`claude -p "hi"` works; otherwise look at the GUI log window for parse/timeout errors.
+is silent, check that `claude -p "hi"` works in the same shell that launched the
+GUI; otherwise look at the GUI log window for parse/timeout errors.
+
+If `claude` is installed but not on `PATH` — common on Windows, where the
+installer's PATH edit doesn't reach an already-open PowerShell — point the agent
+straight at it instead of fighting `PATH`:
+
+```powershell
+$env:SCANNER_CLAUDE_BIN = "$env:USERPROFILE\.local\bin\claude.exe"   # this session
+[Environment]::SetEnvironmentVariable("SCANNER_CLAUDE_BIN", "$env:USERPROFILE\.local\bin\claude.exe", "User")
+```
+
+```bash
+export SCANNER_CLAUDE_BIN="$HOME/.local/bin/claude"                  # POSIX
+```
+
+A `claude` that only exists inside WSL is invisible to a Windows-native Python,
+so install the Windows build (`irm https://claude.ai/install.ps1 | iex`) or run
+the GUI from inside WSL.
 
 ### Point Cloud Is Noisy or Sparse
 
