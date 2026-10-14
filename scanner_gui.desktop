@@ -1,19 +1,10 @@
-#!/usr/bin/env xdg-open
 [Desktop Entry]
-Categories=Graphics;Application
-Comment[en_AU]=ASUS Xtion ROS SLAM Scanner GUI
-Comment=ASUS Xtion ROS SLAM Scanner GUI
-Exec=/home/jim/Desktop/scanner/launch_gui.sh
-GenericName[en_AU]=
-GenericName=
-Icon=camera-photo
-MimeType=
-Name[en_AU]=3D Scanner Control Panel
-Name=3D Scanner Control Panel
-Path=/home/jim/Desktop/scanner
-StartupNotify=true
-Terminal=false
-TerminalOptions=
 Type=Application
-X-KDE-SubstituteUID=false
-X-KDE-Username=
+Name=3D Scanner Control Panel
+Comment=ASUS Xtion / RTAB-Map 3D scanner (Docker)
+Exec="/home/jim/Desktop/3d scanning/scanner/launch_gui.sh"
+Path=/home/jim/Desktop/3d scanning/scanner
+Icon=/home/jim/Desktop/3d scanning/scanner/scanner_icon.png
+Terminal=false
+Categories=Graphics;
+StartupNotify=true
