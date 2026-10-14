@@ -41,6 +41,8 @@ import open3d as o3d
 from open3d.pipelines import registration as reg
 from scipy.spatial.transform import Rotation as R
 
+from scanner_core import docker_prefix
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 IMAGE = "scanner-ros:jazzy"
 SWEEP_DIR = os.path.join(HERE, "output", "sweeps")
@@ -143,14 +145,15 @@ def capture(frames):
     cmd = ("source /opt/ros/jazzy/setup.bash && mkdir -p /scanner/ros_logs && "
            + " ; ".join(steps))
     run = subprocess.run(
-        ["sudo", "docker", "run", "--rm", "--privileged", "--network", "host",
-         "-v", "/dev/bus/usb:/dev/bus/usb", "-v", f"{HERE}:/scanner",
-         IMAGE, "bash", "-lc", cmd],
+        docker_prefix() + ["run", "--rm", "--label", "scanner-ros=1", "--privileged",
+                           "--network", "host",
+                           "-v", "/dev/bus/usb:/dev/bus/usb", "-v", f"{HERE}:/scanner",
+                           IMAGE, "bash", "-lc", cmd],
         capture_output=True, text=True, timeout=90 + len(cams) * 2 * (40 + 2 * frames))
     print(run.stdout[-1500:])
     if run.returncode != 0 and run.stderr:
         print(run.stderr[-300:])
-    subprocess.run(["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}",
+    subprocess.run(["sudo", "-n", "chown", "-R", f"{os.getuid()}:{os.getgid()}",
                     os.path.join(HERE, "output")], check=False)
 
     sweep = fuse_station(cams, raw_dir)

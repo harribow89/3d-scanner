@@ -1,1075 +1,1143 @@
 #!/usr/bin/env python3
-"""
-PySide6-based GUI for ASUS Xtion 3D Scanner (ROS + RTAB-Map + Docker).
+"""scanner_gui.py — PySide6 control panel for the ASUS Xtion 3D scanner.
 
-Controls all scanner modes: camera preview, mapping, export, multi-camera.
-Displays real-time telemetry from the RTAB-Map database.
-"""
+Everything runs in the `scanner-ros:jazzy` Docker container through
+run_scanner_docker.sh; this window just drives it and shows you what is
+happening:
 
-import sys
-import json
-import sqlite3
-import subprocess
-import threading
-import time
+  * Scan tab      — live RGB + depth preview, camera test, single frame,
+                    RTAB-Map SLAM (headless, or with the rtabmap_viz window),
+                    live map statistics straight from rtabmap.db
+  * Export & Clean — export the map to a PLY, isolate the object, build an STL,
+                    browse / view the files in output/
+  * Multi-Camera   — overlap check, auto-calibration, multi-cam RViz, 3-cam SLAM,
+                    Matterport-style station sweeps
+  * Setup          — the doctor checklist, simulated-camera switch, image build,
+                    container stop, database reset
+  * Log            — live output of whatever is running
+
+Design rules that fix the old GUI's problems:
+  * commands are argv lists from scanner_core (paths with spaces are fine)
+  * one QProcess streams its output live; nothing is killed after 10 minutes
+  * Stop sends SIGTERM to the launcher, whose trap `docker stop`s the container,
+    so the USB cameras are really released
+  * the status line says what is RUNNING; map numbers are shown separately
+  * camera modes are refused up front when no Xtion is plugged in
+
+    ./launch_gui.sh                       # normal use
+    ./launch_gui.sh --smoke [--screenshot DIR]   # offscreen self-test
+"""
+from __future__ import annotations
+
+import argparse
 import os
-from pathlib import Path
+import sys
+import time
 from datetime import datetime
-from typing import Optional, Tuple
+from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QTabWidget, QPushButton, QLabel, QSpinBox, QDoubleSpinBox,
-    QComboBox, QFileDialog, QMessageBox, QProgressBar, QFrame,
-    QGridLayout, QGroupBox, QTextEdit, QCheckBox, QSlider,
-    QSplitter, QScrollArea
-)
-from PySide6.QtCore import Qt, QTimer, QThread, Signal
+from PySide6.QtCore import (QObject, QProcess, QProcessEnvironment, QSettings, QSize, Qt,
+                            QThread, QTimer, QUrl, Signal)
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPixmap
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox,
+                               QDoubleSpinBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
+                               QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
+                               QPlainTextEdit, QPushButton, QSizePolicy, QSpinBox,
+                               QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
+                               QWidget)
+
+import scanner_core as core
+
+APP_QSS = """
+QFrame#header { background: #1f2630; border-radius: 6px; }
+QFrame#header QLabel { color: #e6edf3; }
+QLabel#title { font-size: 17px; font-weight: 600; }
+QLabel#running { font-weight: 600; }
+QGroupBox { font-weight: 600; margin-top: 10px; }
+QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 3px; }
+QPushButton { padding: 6px 12px; }
+QPushButton[class="primary"] { background: #2d7ff9; color: white; font-weight: 600; border: none; border-radius: 4px; }
+QPushButton[class="primary"]:hover { background: #1f6fe0; }
+QPushButton[class="primary"]:disabled { background: #8fb4ea; }
+QPushButton#stop { background: #d9534f; color: white; font-weight: 700; border: none; border-radius: 4px; padding: 8px 18px; }
+QPushButton#stop:disabled { background: #c9a1a0; }
+QLabel#hint { color: #555; }
+QLabel.preview { background: #111; color: #999; border: 1px solid #333; }
+"""
+
+GREEN, RED, ORANGE, BLUE, GREY = "#3fb950", "#f85149", "#f0883e", "#58a6ff", "#9aa4ae"
 
 
-HERE = Path(__file__).parent.absolute()
-DOCKER_IMAGE = "scanner-ros:jazzy"
-DB_PATH = HERE / "rtabmap.db"
-OUTPUT_DIR = HERE / "output"
+# ----------------------------------------------------------------- process runner
+class Runner(QObject):
+    """Runs ONE command at a time with QProcess and streams merged output lines."""
 
+    line = Signal(str)
+    started = Signal(object)        # core.Command
+    finished = Signal(int, object)  # exit code (-2 = stopped by user), core.Command
 
-class DockerCommand(QThread):
-    """Run a Docker command in a background thread."""
-    output = Signal(str)
-    # Named to avoid shadowing QThread's built-in no-arg `finished` signal.
-    command_done = Signal(int)  # exit code
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.proc: QProcess | None = None
+        self.cmd: core.Command | None = None
+        self._buf = b""
+        self._stopping = False
 
-    def __init__(self, cmd: str):
-        super().__init__()
+    def busy(self) -> bool:
+        return self.proc is not None and self.proc.state() != QProcess.ProcessState.NotRunning
+
+    def start(self, cmd: core.Command, extra_env: dict | None = None) -> bool:
+        if self.busy():
+            return False
         self.cmd = cmd
-
-    def run(self):
-        try:
-            result = subprocess.run(
-                self.cmd, shell=True, capture_output=True, text=True, timeout=600
-            )
-            if result.stdout:
-                self.output.emit(result.stdout)
-            if result.stderr:
-                self.output.emit(f"[stderr] {result.stderr}")
-            self.command_done.emit(result.returncode)
-        except subprocess.TimeoutExpired:
-            self.output.emit("[ERROR] Command timed out (10 min)")
-            self.command_done.emit(124)
-        except Exception as e:
-            self.output.emit(f"[ERROR] {str(e)}")
-            self.command_done.emit(1)
-
-
-class TelemetryMonitor(QThread):
-    """Poll RTAB-Map database for live telemetry."""
-    updated = Signal(dict)  # telemetry dict
-
-    def __init__(self, db_path: Path):
-        super().__init__()
-        self.db_path = db_path
-        self.running = True
-
-    def run(self):
-        while self.running:
-            telemetry = self._read_db()
-            self.updated.emit(telemetry)
-            time.sleep(2)
-
-    def _read_db(self) -> dict:
-        telemetry = {
-            "nodes": 0,
-            "keyframes": 0,
-            "links": 0,
-            "last_loop_closure": None,
-            "map_size_mb": 0,
-            "status": "offline"
-        }
-        if not self.db_path.exists():
-            return telemetry
-
-        try:
-            # CRITICAL: open read-only + immutable so polling NEVER takes a lock.
-            # A normal connection takes a SQLite shared lock, which makes
-            # RTAB-Map's COMMIT fail ("database is locked") and crashes the
-            # mapping process mid-scan. immutable=1 disables all locking on this
-            # connection — telemetry may read a slightly stale count, which is
-            # fine, but the writer is never blocked.
-            conn = sqlite3.connect(
-                f"file:{self.db_path}?mode=ro&immutable=1", uri=True
-            )
-            cur = conn.cursor()
-
-            # Node count
-            cur.execute("SELECT COUNT(*) FROM Node")
-            count = cur.fetchone()
-            if count:
-                telemetry["nodes"] = count[0]
-
-            # Keyframe count (RTAB-Map: weight >= 0 are keyframes; -1 = intermediate)
-            cur.execute("SELECT COUNT(*) FROM Node WHERE weight >= 0")
-            count = cur.fetchone()
-            if count:
-                telemetry["keyframes"] = count[0]
-
-            # Neighbour (trajectory) link count: Link.type 0 = neighbour
-            cur.execute("SELECT COUNT(*) FROM Link WHERE type = 0")
-            count = cur.fetchone()
-            if count:
-                telemetry["links"] = count[0]
-
-            # Latest loop closure (Link.type 1/2/3 = loop/global/local closures)
-            cur.execute("""
-                SELECT from_id, to_id FROM Link WHERE type IN (1, 2, 3)
-                ORDER BY rowid DESC LIMIT 1
-            """)
-            lc = cur.fetchone()
-            if lc:
-                telemetry["last_loop_closure"] = f"nodes {lc[0]}↔{lc[1]}"
-
-            conn.close()
-
-            # DB file size
-            telemetry["map_size_mb"] = round(self.db_path.stat().st_size / 1024 / 1024, 2)
-            telemetry["status"] = "online" if telemetry["nodes"] > 0 else "idle"
-        except Exception as e:
-            telemetry["status"] = f"error: {str(e)[:30]}"
-
-        return telemetry
+        self._buf = b""
+        self._stopping = False
+        p = QProcess(self)
+        p.setProgram(cmd.argv[0])
+        p.setArguments(cmd.argv[1:])
+        p.setWorkingDirectory(str(cmd.cwd))
+        p.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        env = QProcessEnvironment.systemEnvironment()
+        env.insert("PYTHONUNBUFFERED", "1")
+        for k, v in {**cmd.env, **(extra_env or {})}.items():
+            env.insert(k, str(v))
+        p.setProcessEnvironment(env)
+        p.readyReadStandardOutput.connect(self._on_ready)
+        p.finished.connect(self._on_finished)
+        p.errorOccurred.connect(self._on_error)
+        self.proc = p
+        p.start()
+        self.started.emit(cmd)
+        return True
 
     def stop(self):
-        self.running = False
+        """SIGTERM the launcher: its trap stops the container cleanly."""
+        if not self.busy():
+            return
+        self._stopping = True
+        self.line.emit("[stop] asking the launcher to shut down (containers are stopped by name)…")
+        proc = self.proc
+        proc.terminate()
+        # The escalation must target THIS process only: by the time the timer
+        # fires the user may have started a new command, which must not be killed.
+        QTimer.singleShot(25000, lambda: self._kill_if_alive(proc))
+
+    def _kill_if_alive(self, proc: QProcess):
+        if self.proc is proc and proc.state() != QProcess.ProcessState.NotRunning:
+            self.line.emit("[stop] still running after 25 s — killing it and stopping containers")
+            proc.kill()
+            QProcess.startDetached(str(core.LAUNCHER), ["stop"], str(core.HERE))
+
+    def _on_ready(self):
+        self._buf += bytes(self.proc.readAllStandardOutput().data())
+        while b"\n" in self._buf:
+            raw, self._buf = self._buf.split(b"\n", 1)
+            self.line.emit(raw.decode("utf-8", "replace").rstrip("\r"))
+
+    def _on_finished(self, code: int, status):
+        if self._buf:
+            self.line.emit(self._buf.decode("utf-8", "replace"))
+            self._buf = b""
+        if self._stopping or status == QProcess.ExitStatus.CrashExit:
+            code = -2 if self._stopping else code or -3
+        cmd, self.cmd = self.cmd, None
+        self.finished.emit(code, cmd)
+
+    def _on_error(self, err):
+        if err == QProcess.ProcessError.FailedToStart:
+            self.line.emit(f"[error] could not start: {self.proc.program()}")
+            cmd, self.cmd = self.cmd, None
+            self.finished.emit(-1, cmd)
 
 
-class ScannerGUI(QMainWindow):
-    """Main application window."""
+# ---------------------------------------------------------------- background polls
+class TelemetryThread(QThread):
+    """Polls rtabmap.db (lock-free) and the USB bus every 1.5 s."""
+    telemetry = Signal(dict)
+    cameras = Signal(list)
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("ASUS Xtion 3D Scanner Control Panel")
-        self.setGeometry(100, 100, 1200, 800)
+        self._run = True
 
-        # State
-        self.current_process = None
-        self.telemetry = {}
+    def run(self):
+        while self._run:
+            self.telemetry.emit(core.read_telemetry())
+            self.cameras.emit(core.detect_xtions())
+            for _ in range(15):
+                if not self._run:
+                    break
+                time.sleep(0.1)
 
-        # Telemetry monitor
-        self.monitor = TelemetryMonitor(DB_PATH)
-        self.monitor.updated.connect(self._on_telemetry_update)
-        self.monitor.start()
+    def stop(self):
+        self._run = False
 
-        # UI
-        self._setup_ui()
-        self._setup_timers()
 
-    def _setup_ui(self):
-        """Build the main UI."""
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
+class DoctorThread(QThread):
+    done = Signal(list)
 
-        # Top status bar
-        status_layout = QHBoxLayout()
-        self.status_label = QLabel("Status: Idle")
-        self.status_label.setStyleSheet("font-weight: bold; color: green;")
-        self.nodes_label = QLabel("Nodes: 0")
-        self.db_size_label = QLabel("DB: 0 MB")
-        status_layout.addWidget(self.status_label)
-        status_layout.addStretch()
-        status_layout.addWidget(self.nodes_label)
-        status_layout.addWidget(self.db_size_label)
-        layout.addLayout(status_layout)
+    def __init__(self, full: bool):
+        super().__init__()
+        self.full = full
 
-        # Tab widget
-        tabs = QTabWidget()
-        tabs.addTab(self._build_camera_tab(), "Camera Preview")
-        tabs.addTab(self._build_mapping_tab(), "Mapping")
-        tabs.addTab(self._build_export_tab(), "Export")
-        tabs.addTab(self._build_multicam_tab(), "Multi-Camera")
-        tabs.addTab(self._build_settings_tab(), "Settings")
-        tabs.addTab(self._build_log_tab(), "Log")
-        layout.addWidget(tabs)
+    def run(self):
+        self.done.emit(core.run_doctor(full=self.full))
 
-        # Bottom buttons
-        button_layout = QHBoxLayout()
-        self.stop_btn = QPushButton("Stop / Cancel")
-        self.stop_btn.setStyleSheet("background-color: #ff6b6b;")
-        self.stop_btn.clicked.connect(self._on_stop)
-        button_layout.addStretch()
-        button_layout.addWidget(self.stop_btn)
-        layout.addLayout(button_layout)
 
-    def _build_camera_tab(self) -> QWidget:
-        """Camera preview and single-frame capture."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+# ------------------------------------------------------------------------ widgets
+def primary(btn: QPushButton) -> QPushButton:
+    btn.setProperty("class", "primary")
+    btn.setMinimumHeight(34)
+    return btn
 
-        # Test camera stream
-        test_group = QGroupBox("Test Camera Stream")
-        test_layout = QVBoxLayout(test_group)
-        self.camera_test_btn = QPushButton("Launch Live Preview (30 sec)")
-        self.camera_test_btn.clicked.connect(self._on_camera_preview)
-        test_layout.addWidget(self.camera_test_btn)
-        layout.addWidget(test_group)
 
-        # Single frame capture
-        snap_group = QGroupBox("Capture Single Frame")
-        snap_layout = QVBoxLayout(snap_group)
-        self.snap_output_label = QLabel(f"Output: {OUTPUT_DIR}/single_frame.ply")
-        snap_layout.addWidget(self.snap_output_label)
-        self.snap_btn = QPushButton("Capture Frame")
-        self.snap_btn.clicked.connect(self._on_snap)
-        snap_layout.addWidget(self.snap_btn)
-        layout.addWidget(snap_group)
+class PreviewPanel(QWidget):
+    """Two image panes (RGB, depth) fed from .live/ by live_preview_node.py."""
 
-        layout.addStretch()
-        return widget
+    def __init__(self):
+        super().__init__()
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        row = QHBoxLayout()
+        self.rgb = self._pane("RGB")
+        self.depth = self._pane("Depth")
+        row.addWidget(self.rgb)
+        row.addWidget(self.depth)
+        lay.addLayout(row)
+        self.stats = QLabel("Preview off — press “Start live preview”.")
+        self.stats.setObjectName("hint")
+        self.stats.setWordWrap(True)
+        lay.addWidget(self.stats)
+        self._mtime = {}
+        self._pix = {}
 
-    def _build_mapping_tab(self) -> QWidget:
-        """Full RTAB-Map SLAM mapping."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+    def _pane(self, caption: str) -> QLabel:
+        lab = QLabel(caption)
+        lab.setProperty("class", "preview")
+        lab.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lab.setMinimumSize(320, 240)
+        lab.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        return lab
 
-        # Quick map mode
-        quick_group = QGroupBox("Quick SLAM Scan")
-        quick_layout = QVBoxLayout(quick_group)
-        quick_desc = QLabel(
-            "Continuous mapping with RTAB-Map.\nMove camera slowly to build a 3D map.\n"
-            "Press 'Stop / Cancel' to finish."
-        )
-        quick_layout.addWidget(quick_desc)
-        self.quick_map_btn = QPushButton("Start Quick Scan")
-        self.quick_map_btn.clicked.connect(self._on_quick_map)
-        quick_layout.addWidget(self.quick_map_btn)
-        layout.addWidget(quick_group)
+    def refresh(self, running_camera: bool):
+        status = core.read_live_status()
+        rgb_p, depth_p = core.live_image_paths()
+        for key, path, lab in (("rgb", rgb_p, self.rgb), ("depth", depth_p, self.depth)):
+            try:
+                m = path.stat().st_mtime
+            except OSError:
+                continue
+            if self._mtime.get(key) != m:
+                pix = QPixmap(str(path))
+                if not pix.isNull():
+                    self._pix[key] = pix
+                    self._mtime[key] = m
+            if key in self._pix:
+                lab.setPixmap(self._pix[key].scaled(
+                    lab.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation))
 
-        object_group = QGroupBox("Object Capture Helper")
-        object_layout = QVBoxLayout(object_group)
-        object_layout.addWidget(QLabel(
-            "For single objects, use a tighter depth window, keep the object centered, "
-            "and finish with one slow top pass before export."
-        ))
-        self.object_preset_btn = QPushButton("Apply Object-Capture Preset")
-        self.object_preset_btn.clicked.connect(self._apply_object_capture_preset)
-        object_layout.addWidget(self.object_preset_btn)
-        self.object_scan_btn = QPushButton("Start Object Capture Scan")
-        self.object_scan_btn.clicked.connect(self._on_object_capture_scan)
-        object_layout.addWidget(self.object_scan_btn)
-        layout.addWidget(object_group)
-
-        guide_group = QGroupBox("Capture Guide")
-        guide_layout = QVBoxLayout(guide_group)
-        guide_layout.addWidget(QLabel("Coverage Progress:"))
-        self.coverage_bar = QProgressBar()
-        self.coverage_bar.setRange(0, 100)
-        self.coverage_bar.setValue(0)
-        self.coverage_bar.setFormat("%p%")
-        guide_layout.addWidget(self.coverage_bar)
-
-        self.coverage_hint = QLabel("Start a guided scan to see what to do next.")
-        self.coverage_hint.setWordWrap(True)
-        guide_layout.addWidget(self.coverage_hint)
-
-        checklist_frame = QFrame()
-        checklist_layout = QVBoxLayout(checklist_frame)
-        self.checklist_base_texts = [
-            "1. Keep the object centered and move slowly.",
-            "2. Complete one full side orbit with overlap.",
-            "3. Add a slightly higher angle pass.",
-            "4. Finish with one slow top pass and export.",
-        ]
-        self.checklist_labels = []
-        for text in self.checklist_base_texts:
-            label = QLabel(f"• {text}")
-            label.setWordWrap(True)
-            checklist_layout.addWidget(label)
-            self.checklist_labels.append(label)
-        guide_layout.addWidget(checklist_frame)
-
-        self.guided_scan_btn = QPushButton("Start Guided Object Scan")
-        self.guided_scan_btn.clicked.connect(self._on_guided_object_scan)
-        guide_layout.addWidget(self.guided_scan_btn)
-        layout.addWidget(guide_group)
-
-        # Full GUI mode (hands-off SLAM + visualization)
-        gui_group = QGroupBox("Full SLAM GUI (Hands-Off)")
-        gui_layout = QVBoxLayout(gui_group)
-        gui_desc = QLabel(
-            "Combines camera + RTAB-Map node + rtabmap_viz.\n"
-            "Mapping starts automatically. Close the window to finish."
-        )
-        gui_layout.addWidget(gui_desc)
-        self.full_gui_btn = QPushButton("Launch Full SLAM GUI")
-        self.full_gui_btn.clicked.connect(self._on_full_gui)
-        gui_layout.addWidget(self.full_gui_btn)
-        layout.addWidget(gui_group)
-
-        # Map stats
-        stats_group = QGroupBox("Current Map Statistics")
-        stats_layout = QGridLayout(stats_group)
-        stats_layout.addWidget(QLabel("Keyframes:"), 0, 0)
-        self.kf_label = QLabel("0")
-        stats_layout.addWidget(self.kf_label, 0, 1)
-        stats_layout.addWidget(QLabel("Links:"), 1, 0)
-        self.links_label = QLabel("0")
-        stats_layout.addWidget(self.links_label, 1, 1)
-        stats_layout.addWidget(QLabel("Last Loop:"), 2, 0)
-        self.loop_label = QLabel("—")
-        stats_layout.addWidget(self.loop_label, 2, 1)
-        layout.addWidget(stats_group)
-
-        layout.addStretch()
-        return widget
-
-    def _coverage_state(self) -> tuple[int, str, list[bool]]:
-        stats = self.telemetry or {}
-        nodes = int(stats.get("nodes", 0) or 0)
-        keyframes = int(stats.get("keyframes", 0) or 0)
-        links = int(stats.get("links", 0) or 0)
-        db_size = float(stats.get("map_size_mb", 0) or 0)
-
-        if nodes <= 0 and keyframes <= 0:
-            return 0, "Start a scan and circle the object slowly to build the first coverage.", [False, False, False, False]
-
-        score = min(100, int(nodes * 4 + keyframes * 3 + links * 7 + db_size * 3))
-
-        if score < 20:
-            hint = "Build the first side orbit. Keep the object centered and move slower than you think."
-        elif score < 45:
-            hint = "Good start. Add a second pass from a slightly higher angle and keep overlap high."
-        elif score < 70:
-            hint = "Coverage is decent. Add a top-biased pass to fill in the roof and upper edges."
-        else:
-            hint = "Coverage looks ready for export. If the shape is thin, add one final top pass first."
-
-        checklist = [
-            nodes >= 5 or keyframes >= 4,
-            nodes >= 10 or links >= 2,
-            nodes >= 16 or db_size >= 0.2,
-            score >= 70,
-        ]
-        return score, hint, checklist
-
-    def _update_capture_guide(self):
-        if not hasattr(self, "coverage_bar"):
+        if status is None:
+            self.stats.setText("Preview off — press “Start live preview” (or start a scan)."
+                               if not running_camera else "Starting the camera…")
             return
+        cam = next(iter(status.get("cameras", {}).values()), None)
+        if not status["fresh"]:
+            self.stats.setText(f"Last frame {status['age_s']:.0f} s ago"
+                               + (" — the camera stream has stopped." if running_camera else "."))
+            return
+        if not cam or (cam["rgb_frames"] == 0 and cam["depth_frames"] == 0):
+            self.stats.setText("Camera node up, waiting for the first frames…")
+            return
+        self.stats.setText(
+            f"RGB {cam['rgb_fps']} fps · depth {cam['depth_fps']} fps · "
+            f"{cam['width']}×{cam['height']} · depth fill {cam['depth_fill_pct']}% · "
+            f"median {cam['median_depth_m']} m")
 
-        score, hint, checklist = self._coverage_state()
-        self.coverage_bar.setValue(score)
-        self.coverage_hint.setText(hint)
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        for key, lab in (("rgb", self.rgb), ("depth", self.depth)):
+            if key in self._pix:
+                lab.setPixmap(self._pix[key].scaled(
+                    lab.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation))
 
-        for index, label in enumerate(self.checklist_labels):
-            done = checklist[index]
-            prefix = "[x]" if done else "[ ]"
-            base_text = self.checklist_base_texts[index]
-            label.setText(f"{prefix} {base_text}")
-            label.setStyleSheet("font-weight: bold; color: #2e7d32;" if done else "color: #666;")
+
+# ------------------------------------------------------------------- main window
+class ScannerWindow(QMainWindow):
+    def __init__(self, smoke: bool = False):
+        super().__init__()
+        self.setWindowTitle("3D Scanner — ASUS Xtion / RTAB-Map")
+        if core.ICON_PNG.exists():
+            self.setWindowIcon(QIcon(str(core.ICON_PNG)))
+        self.resize(1280, 840)
+        self.settings = QSettings("scanner", "control-panel")
+        self.smoke = smoke
+        self.cameras: list[core.Xtion] = []
+        self.telemetry: dict = {}
+        self.doctor_checks: list[core.Check] = []
+        self.doctor_thread: DoctorThread | None = None
+
+        self.runner = Runner(self)
+        self.runner.line.connect(self._log)
+        self.runner.started.connect(self._on_started)
+        self.runner.finished.connect(self._on_finished)
+
+        self._build_ui()
+        self._restore_settings()
+
+        self.poller = TelemetryThread()
+        self.poller.telemetry.connect(self._on_telemetry)
+        self.poller.cameras.connect(self._on_cameras)
+        self.poller.start()
+
+        self.preview_timer = QTimer(self)
+        self.preview_timer.timeout.connect(self._tick_preview)
+        self.preview_timer.start(150)
+
+        self.files_timer = QTimer(self)
+        self.files_timer.timeout.connect(self._refresh_files)
+        self.files_timer.start(5000)
+
+        self._log(f"Project: {core.HERE}")
+        self._log("Tip: the Setup tab shows what is missing; the Log tab shows what every "
+                  "button really ran.")
+        self._run_doctor(full=not smoke)
+
+    # ------------------------------------------------------------------ build
+    def _build_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(10, 10, 10, 6)
+
+        header = QFrame()
+        header.setObjectName("header")
+        h = QHBoxLayout(header)
+        h.setContentsMargins(14, 8, 14, 8)
+        title = QLabel("3D Scanner")
+        title.setObjectName("title")
+        h.addWidget(title)
+        h.addSpacing(18)
+        self.cam_label = QLabel("○ looking for cameras…")
+        h.addWidget(self.cam_label)
+        h.addSpacing(18)
+        self.run_label = QLabel("Idle")
+        self.run_label.setObjectName("running")
+        h.addWidget(self.run_label, 1)
+        self.map_label = QLabel("Map: none")
+        h.addWidget(self.map_label)
+        h.addSpacing(14)
+        self.stop_btn = QPushButton("■ Stop  (F8)")
+        self.stop_btn.setObjectName("stop")
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.setShortcut("F8")
+        self.stop_btn.setToolTip("Stop the running command and free the camera (F8)")
+        self.stop_btn.clicked.connect(self._on_stop)
+        h.addWidget(self.stop_btn)
+        root.addWidget(header)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_scan_tab(), "Scan")
+        self.tabs.addTab(self._build_export_tab(), "Export && Clean")
+        self.tabs.addTab(self._build_multicam_tab(), "Multi-Camera")
+        self.tabs.addTab(self._build_setup_tab(), "Setup")
+        self.tabs.addTab(self._build_log_tab(), "Log")
+        root.addWidget(self.tabs, 1)
+        self.statusBar().showMessage("Ready")
+
+    def _build_scan_tab(self) -> QWidget:
+        w = QWidget()
+        lay = QHBoxLayout(w)
+
+        self.preview = PreviewPanel()
+        lay.addWidget(self.preview, 3)
+
+        right = QVBoxLayout()
+        lay.addLayout(right, 2)
+
+        g1 = QGroupBox("1 · Camera")
+        l1 = QVBoxLayout(g1)
+        self.preview_btn = primary(QPushButton("▶  Start live preview  (F5)"))
+        self.preview_btn.setShortcut("F5")
+        self.preview_btn.setToolTip("Streams RGB + depth into the panes on the left. Runs until Stop. (F5)")
+        self.preview_btn.clicked.connect(lambda: self._run(core.cmd_preview()))
+        l1.addWidget(self.preview_btn)
+        row = QHBoxLayout()
+        b = QPushButton("Test camera (20 s)")
+        b.setToolTip("Starts the driver, measures the frame rate for 20 s, then stops.")
+        b.clicked.connect(lambda: self._run(core.cmd_camera_test(20)))
+        row.addWidget(b)
+        b = QPushButton("Capture one frame → PLY")
+        b.setToolTip("Saves a single point cloud to output/single_frame.ply")
+        b.clicked.connect(lambda: self._run(core.cmd_snap()))
+        row.addWidget(b)
+        l1.addLayout(row)
+        right.addWidget(g1)
+
+        g2 = QGroupBox("2 · Scan the scene (RTAB-Map SLAM)")
+        l2 = QVBoxLayout(g2)
+        self.fresh_cb = QCheckBox("Start a new map (clears the previous one)")
+        self.fresh_cb.setChecked(True)
+        l2.addWidget(self.fresh_cb)
+        self.scan_btn = primary(QPushButton("●  Start scan  (F6)"))
+        self.scan_btn.setShortcut("F6")
+        self.scan_btn.setToolTip("Headless SLAM with the live preview on the left. "
+                                 "Move the camera slowly; press Stop to finish. (F6)")
+        self.scan_btn.clicked.connect(lambda: self._run(core.cmd_map(self.fresh_cb.isChecked())))
+        l2.addWidget(self.scan_btn)
+        b = QPushButton("Open the RTAB-Map window (SLAM + 3D view)  (F7)")
+        b.setShortcut("F7")
+        b.setToolTip("Same SLAM, plus rtabmap_viz showing the growing 3D map. "
+                     "Close that window to finish. (F7)")
+        b.clicked.connect(lambda: self._run(core.cmd_gui(self.fresh_cb.isChecked())))
+        l2.addWidget(b)
+        tips = QLabel("Move slowly, keep the subject 0.5–3 m away, keep lots of overlap "
+                      "between views and come back to places you already scanned "
+                      "(loop closures fix drift).")
+        tips.setObjectName("hint")
+        tips.setWordWrap(True)
+        l2.addWidget(tips)
+        right.addWidget(g2)
+
+        g3 = QGroupBox("Map progress (live from rtabmap.db)")
+        l3 = QGridLayout(g3)
+        self.stat_labels = {}
+        for i, (key, text) in enumerate([("nodes", "Keyframes"), ("links", "Links"),
+                                         ("loop_closures", "Loop closures"),
+                                         ("map_size_mb", "Database"),
+                                         ("updated", "Last update")]):
+            l3.addWidget(QLabel(text + ":"), i // 2, (i % 2) * 2)
+            lab = QLabel("—")
+            lab.setFont(QFont("", -1, QFont.Weight.Bold))
+            l3.addWidget(lab, i // 2, (i % 2) * 2 + 1)
+            self.stat_labels[key] = lab
+        self.hint_label = QLabel("")
+        self.hint_label.setObjectName("hint")
+        self.hint_label.setWordWrap(True)
+        l3.addWidget(self.hint_label, 3, 0, 1, 4)
+        right.addWidget(g3)
+
+        g4 = QGroupBox("3 · Finished scanning?")
+        l4 = QHBoxLayout(g4)
+        b = QPushButton("Go to Export && Clean →")
+        b.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
+        l4.addWidget(b)
+        right.addWidget(g4)
+        right.addStretch()
+        return w
 
     def _build_export_tab(self) -> QWidget:
-        """Export and post-processing."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+        w = QWidget()
+        lay = QVBoxLayout(w)
 
-        # Export options
-        export_group = QGroupBox("Export Point Cloud")
-        export_layout = QGridLayout(export_group)
-
-        export_layout.addWidget(QLabel("Output File:"), 0, 0)
-        self.export_path_label = QLabel(f"{OUTPUT_DIR}/scan.ply")
-        export_layout.addWidget(self.export_path_label, 0, 1)
-        browse_btn = QPushButton("Browse...")
-        browse_btn.clicked.connect(self._on_browse_export)
-        export_layout.addWidget(browse_btn, 0, 2)
-
-        export_layout.addWidget(QLabel("RTAB-Map writes <name>_cloud.ply automatically."), 1, 0, 1, 3)
-
-        export_layout.addWidget(QLabel("Database:"), 2, 0)
-        self.db_selector = QComboBox()
-        self.db_selector.addItem(f"{DB_PATH} (current)")
-        for ply in sorted(OUTPUT_DIR.glob("cal_*.ply")):
-            # Allow selecting intermediate calibration clouds (for reference)
-            pass
-        export_layout.addWidget(self.db_selector, 2, 1)
-
-        self.export_btn = QPushButton("Export Cloud")
+        g = QGroupBox("Export the map to a point cloud")
+        grid = QGridLayout(g)
+        grid.addWidget(QLabel("Preset:"), 0, 0)
+        self.preset_combo = QComboBox()
+        self.preset_combo.addItems(list(core.EXPORT_PRESETS) + ["Custom"])
+        self.preset_combo.currentTextChanged.connect(self._apply_preset)
+        grid.addWidget(self.preset_combo, 0, 1)
+        grid.addWidget(QLabel("Name:"), 0, 2)
+        self.name_edit = QLineEdit("scan")
+        self.name_edit.setToolTip("RTAB-Map writes output/<name>_cloud.ply")
+        self.name_edit.textChanged.connect(self._update_export_target)
+        grid.addWidget(self.name_edit, 0, 3)
+        grid.addWidget(QLabel("Max range (m):"), 1, 0)
+        self.range_spin = QDoubleSpinBox()
+        self.range_spin.setRange(0.5, 10.0)
+        self.range_spin.setSingleStep(0.5)
+        self.range_spin.setValue(4.0)
+        self.range_spin.setToolTip("Points farther than this from the camera are dropped "
+                                   "(Xtion depth is poor beyond ~3.5 m).")
+        grid.addWidget(self.range_spin, 1, 1)
+        grid.addWidget(QLabel("Voxel (mm):"), 1, 2)
+        self.voxel_spin = QDoubleSpinBox()
+        self.voxel_spin.setRange(1.0, 50.0)
+        self.voxel_spin.setSingleStep(1.0)
+        self.voxel_spin.setValue(12.0)
+        self.voxel_spin.setToolTip("Downsampling grid. Smaller keeps more detail but makes "
+                                   "bigger, slower files.")
+        grid.addWidget(self.voxel_spin, 1, 3)
+        self.export_target = QLabel("")
+        self.export_target.setObjectName("hint")
+        grid.addWidget(self.export_target, 2, 0, 1, 3)
+        self.export_btn = primary(QPushButton("Export cloud"))
         self.export_btn.clicked.connect(self._on_export)
-        export_layout.addWidget(self.export_btn, 3, 0)
+        grid.addWidget(self.export_btn, 2, 3)
+        lay.addWidget(g)
 
-        self.view_btn = QPushButton("View in 3D")
-        self.view_btn.clicked.connect(self._on_view_cloud)
-        export_layout.addWidget(self.view_btn, 3, 1)
+        g = QGroupBox("Clean / isolate the object and build a mesh")
+        grid = QGridLayout(g)
+        grid.addWidget(QLabel("Strategy:"), 0, 0)
+        self.strategy_combo = QComboBox()
+        self.strategy_combo.addItems(core.ISOLATION_STRATEGIES)
+        self.strategy_combo.setToolTip(
+            "raw_clean: outliers only · largest_cluster: main blob · tabletop_object: "
+            "remove the table plane then keep the object · center_focus: crop to the "
+            "middle · aggressive_hybrid: all of it · all_variants: save every strategy")
+        grid.addWidget(self.strategy_combo, 0, 1)
+        self.clean_input = QLabel("")
+        self.clean_input.setObjectName("hint")
+        grid.addWidget(self.clean_input, 0, 2, 1, 2)
+        b = QPushButton("Apply isolation")
+        b.clicked.connect(lambda: self._on_clean(stl=False))
+        grid.addWidget(b, 1, 0)
+        b = QPushButton("Make STL mesh")
+        b.clicked.connect(lambda: self._on_clean(stl=True))
+        grid.addWidget(b, 1, 1)
+        b = primary(QPushButton("Export + clean + STL"))
+        b.clicked.connect(self._on_export_clean_stl)
+        grid.addWidget(b, 1, 2, 1, 2)
+        lay.addWidget(g)
 
-        self.stl_btn = QPushButton("Generate STL")
-        self.stl_btn.clicked.connect(self._on_generate_stl)
-        export_layout.addWidget(self.stl_btn, 3, 2)
+        g = QGroupBox("Files in output/")
+        v = QVBoxLayout(g)
+        self.files = QTableWidget(0, 3)
+        self.files.setHorizontalHeaderLabels(["File", "Size", "Modified"])
+        fh = self.files.horizontalHeader()
+        fh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        fh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        fh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.files.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.files.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.files.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.files.itemSelectionChanged.connect(self._update_clean_input)
+        self.files.doubleClicked.connect(lambda _: self._on_view())
+        v.addWidget(self.files)
+        row = QHBoxLayout()
+        b = QPushButton("View in 3D")
+        b.setToolTip("Opens the selected PLY/STL in the Open3D viewer (double-click also works)")
+        b.clicked.connect(self._on_view)
+        row.addWidget(b)
+        b = QPushButton("Open folder")
+        b.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(core.OUTPUT_DIR))))
+        row.addWidget(b)
+        b = QPushButton("Refresh")
+        b.clicked.connect(self._refresh_files)
+        row.addWidget(b)
+        row.addStretch()
+        v.addLayout(row)
+        lay.addWidget(g, 1)
 
-        self.export_stl_btn = QPushButton("Export + STL")
-        self.export_stl_btn.clicked.connect(self._on_export_and_stl)
-        export_layout.addWidget(self.export_stl_btn, 4, 0, 1, 3)
-
-        layout.addWidget(export_group)
-
-        # Post-processing
-        post_group = QGroupBox("Post-Processing")
-        post_layout = QVBoxLayout(post_group)
-
-        post_layout.addWidget(QLabel("Isolation Strategy:"))
-        self.isolation_combo = QComboBox()
-        self.isolation_combo.addItems([
-            "raw_clean",
-            "largest_cluster",
-            "tabletop_object",
-            "center_focus",
-            "aggressive_hybrid",
-            "all_variants"
-        ])
-        post_layout.addWidget(self.isolation_combo)
-
-        self.isolation_btn = QPushButton("Apply Isolation")
-        self.isolation_btn.clicked.connect(self._on_isolate)
-        post_layout.addWidget(self.isolation_btn)
-
-        layout.addWidget(post_group)
-
-        # Additional exports
-        layout.addWidget(QLabel("Saved Files in output/:"))
-        self.files_list = QTextEdit()
-        self.files_list.setReadOnly(True)
-        layout.addWidget(self.files_list)
-
-        self._refresh_file_list()
-        return widget
+        self._update_export_target()
+        self._refresh_files()
+        return w
 
     def _build_multicam_tab(self) -> QWidget:
-        """Multi-camera setup and calibration."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        intro = QLabel("For rigs with 2–3 Xtions (roster in cameras.json). Single-camera "
+                       "scanning does not need anything here.")
+        intro.setObjectName("hint")
+        intro.setWordWrap(True)
+        lay.addWidget(intro)
 
-        layout.addWidget(QLabel("Multiple Camera Control"))
+        g = QGroupBox("Calibration (do this once, in order)")
+        v = QVBoxLayout(g)
+        lab = QLabel("Aim all cameras at a STRUCTURED scene 1–1.5 m away so adjacent "
+                     "cameras overlap 30–50 %. Cameras are captured one at a time. "
+                     "See CALIBRATION_GUIDE.md.")
+        lab.setWordWrap(True)
+        v.addWidget(lab)
+        row = QHBoxLayout()
+        b = QPushButton("1 · Check camera overlap")
+        b.clicked.connect(lambda: self._run(core.cmd_overlap()))
+        row.addWidget(b)
+        b = QPushButton("2 · Auto-calibrate")
+        b.clicked.connect(lambda: self._run(core.cmd_calibrate()))
+        row.addWidget(b)
+        v.addLayout(row)
+        lay.addWidget(g)
 
-        # Multi-camera preview
-        multi_group = QGroupBox("Multi-Camera Live View")
-        multi_layout = QVBoxLayout(multi_group)
-        multi_desc = QLabel(
-            "Displays all detected ASUS Xtions from cameras.json.\n"
-            "Uses calibrated extrinsics from calibrate_multi.py."
-        )
-        multi_layout.addWidget(multi_desc)
-        self.multi_view_btn = QPushButton("Launch Multi-Camera RViz")
-        self.multi_view_btn.clicked.connect(self._on_multi_view)
-        multi_layout.addWidget(self.multi_view_btn)
-        layout.addWidget(multi_group)
+        g = QGroupBox("Live")
+        row = QHBoxLayout(g)
+        b = QPushButton("Multi-camera RViz")
+        b.setToolTip("All cameras' clouds in one RViz window using the calibrated extrinsics.")
+        b.clicked.connect(lambda: self._run(core.cmd_multi()))
+        row.addWidget(b)
+        b = QPushButton("3-camera SLAM (experimental)")
+        b.setToolTip("Needs GOOD calibration and all 3 RGB-D streams (marginal on one USB-2 bus). "
+                     "Takes ~40 s before the window appears.")
+        b.clicked.connect(self._on_multi_slam)
+        row.addWidget(b)
+        lay.addWidget(g)
 
-        # 3-camera SLAM (experimental)
-        slam_group = QGroupBox("3-Camera SLAM (experimental)")
-        slam_layout = QVBoxLayout(slam_group)
-        slam_desc = QLabel(
-            "Live RTAB-Map SLAM fusing all 3 Xtions for a wide field of view. "
-            "REQUIRES good calibration first — calibrate (above) until overlap is "
-            "GOOD, or odometry won't lock. Move the rig slowly; close the window "
-            "to finish. Needs all 3 RGB-D streams (marginal on one USB-2 bus)."
-        )
-        slam_desc.setWordWrap(True)
-        slam_layout.addWidget(slam_desc)
-        self.multi_slam_btn = QPushButton("Launch 3-Cam SLAM")
-        self.multi_slam_btn.setToolTip(
-            "Runs cameras -> rgbd_sync -> rgbd_odometry -> rtabmap on all 3 "
-            "cameras. Only produces a good map once camera_extrinsics.json is "
-            "calibrated (see the Calibration section)."
-        )
-        self.multi_slam_btn.clicked.connect(self._on_multi_slam)
-        slam_layout.addWidget(self.multi_slam_btn)
-        layout.addWidget(slam_group)
+        g = QGroupBox("Station / sweep scan (Matterport-style)")
+        v = QVBoxLayout(g)
+        lab = QLabel("Capture a sweep from each tripod position (N stacked frames per camera, "
+                     "fused with the calibration), then Build registers all sweeps into "
+                     "output/room.ply.")
+        lab.setWordWrap(True)
+        v.addWidget(lab)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Frames per camera:"))
+        self.frames_spin = QSpinBox()
+        self.frames_spin.setRange(1, 60)
+        self.frames_spin.setValue(12)
+        row.addWidget(self.frames_spin)
+        self.sweeps_label = QLabel("")
+        row.addWidget(self.sweeps_label)
+        row.addStretch()
+        v.addLayout(row)
+        row = QHBoxLayout()
+        b = QPushButton("Capture sweep")
+        b.clicked.connect(lambda: self._run(core.cmd_station("capture", "--frames",
+                                                             str(self.frames_spin.value()))))
+        row.addWidget(b)
+        b = QPushButton("Build room")
+        b.clicked.connect(self._on_station_build)
+        row.addWidget(b)
+        b = QPushButton("View room")
+        b.clicked.connect(lambda: self._view_file(core.OUTPUT_DIR / "room.ply"))
+        row.addWidget(b)
+        b = QPushButton("Clear sweeps")
+        b.clicked.connect(self._on_station_clear)
+        row.addWidget(b)
+        v.addLayout(row)
+        lay.addWidget(g)
 
-        # Calibration
-        calib_group = QGroupBox("Calibration")
-        calib_layout = QVBoxLayout(calib_group)
-        calib_desc = QLabel(
-            "Aim all cameras at a STRUCTURED scene ~1-1.5 m away so adjacent "
-            "cameras overlap ~30-50%. Step 1 checks overlap; only calibrate "
-            "(step 2) once every pair reads GOOD. See CALIBRATION_GUIDE.md."
-        )
-        calib_desc.setWordWrap(True)
-        calib_layout.addWidget(calib_desc)
-        self.overlap_btn = QPushButton("1. Check Camera Overlap")
-        self.overlap_btn.setToolTip(
-            "Capture each camera and report how much adjacent cameras share a "
-            "view. Re-aim until every pair is GOOD before calibrating — low "
-            "overlap is the #1 cause of misaligned multi-camera fusion."
-        )
-        self.overlap_btn.clicked.connect(self._on_overlap_check)
-        calib_layout.addWidget(self.overlap_btn)
-        self.calib_btn = QPushButton("2. Run Auto-Calibration")
-        self.calib_btn.clicked.connect(self._on_calibrate)
-        calib_layout.addWidget(self.calib_btn)
-        layout.addWidget(calib_group)
-
-        # Station / sweep scanning (Matterport-style) — see MATTERPORT_REPLICATION_PLAN.md
-        station_group = QGroupBox("Station / Sweep Scan (Matterport-style)")
-        station_layout = QVBoxLayout(station_group)
-        station_layout.addWidget(QLabel(
-            "Capture discrete sweeps from fixed tripod positions, then fuse.\n"
-            "Move the rig between sweeps; each sweep stacks N frames/camera and\n"
-            "fuses all cameras via the calibrated extrinsics. Build globally\n"
-            "registers all sweeps (pose-graph) into output/room.ply."
-        ))
-        frames_row = QHBoxLayout()
-        frames_row.addWidget(QLabel("Frames per camera:"))
-        self.station_frames_spin = QSpinBox()
-        self.station_frames_spin.setRange(1, 60)
-        self.station_frames_spin.setValue(12)
-        frames_row.addWidget(self.station_frames_spin)
-        frames_row.addStretch()
-        station_layout.addLayout(frames_row)
-
-        self.station_count_label = QLabel("Sweeps captured: 0")
-        station_layout.addWidget(self.station_count_label)
-
-        btn_row = QHBoxLayout()
-        self.station_capture_btn = QPushButton("Capture Sweep")
-        self.station_capture_btn.clicked.connect(self._on_station_capture)
-        btn_row.addWidget(self.station_capture_btn)
-        self.station_build_btn = QPushButton("Build Room")
-        self.station_build_btn.clicked.connect(self._on_station_build)
-        btn_row.addWidget(self.station_build_btn)
-        station_layout.addLayout(btn_row)
-
-        btn_row2 = QHBoxLayout()
-        self.station_view_btn = QPushButton("View Room")
-        self.station_view_btn.clicked.connect(self._on_station_view)
-        btn_row2.addWidget(self.station_view_btn)
-        self.station_clear_btn = QPushButton("Clear Sweeps")
-        self.station_clear_btn.clicked.connect(self._on_station_clear)
-        btn_row2.addWidget(self.station_clear_btn)
-        station_layout.addLayout(btn_row2)
-        layout.addWidget(station_group)
-
-        # Camera roster
-        roster_group = QGroupBox("Detected Cameras (cameras.json)")
-        roster_layout = QVBoxLayout(roster_group)
-        self.roster_text = QTextEdit()
+        g = QGroupBox("cameras.json")
+        v = QVBoxLayout(g)
+        self.roster_text = QPlainTextEdit()
         self.roster_text.setReadOnly(True)
-        roster_layout.addWidget(self.roster_text)
-        layout.addWidget(roster_group)
+        self.roster_text.setMaximumHeight(150)
+        try:
+            self.roster_text.setPlainText(core.CAMERAS_JSON.read_text())
+        except OSError as e:
+            self.roster_text.setPlainText(f"(cannot read cameras.json: {e})")
+        v.addWidget(self.roster_text)
+        lay.addWidget(g)
+        lay.addStretch()
+        self._refresh_sweeps()
+        return w
 
-        self._refresh_roster()
-        self._refresh_sweep_count()
-        return widget
+    def _build_setup_tab(self) -> QWidget:
+        w = QWidget()
+        lay = QVBoxLayout(w)
 
-    def _build_settings_tab(self) -> QWidget:
-        """Settings and parameters."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
+        g = QGroupBox("Checklist")
+        v = QVBoxLayout(g)
+        self.doctor_table = QTableWidget(0, 3)
+        self.doctor_table.setHorizontalHeaderLabels(["Check", "Result", "What to do"])
+        hh = self.doctor_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.doctor_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.doctor_table.setWordWrap(True)
+        self.doctor_table.setMinimumHeight(300)
+        v.addWidget(self.doctor_table)
+        row = QHBoxLayout()
+        self.doctor_btn = QPushButton("Re-run checks")
+        self.doctor_btn.clicked.connect(lambda: self._run_doctor(full=True))
+        row.addWidget(self.doctor_btn)
+        self.fake_cb = QCheckBox("Use the SIMULATED camera (no hardware) — for trying the app")
+        self.fake_cb.setToolTip("Every camera mode then uses tests/fake_camera.py, a synthetic "
+                                "RGB-D scene, so you can try preview / scan / export without an Xtion.")
+        self.fake_cb.toggled.connect(self._on_fake_toggled)
+        row.addWidget(self.fake_cb)
+        row.addStretch()
+        v.addLayout(row)
+        lay.addWidget(g)
 
-        # Project settings
-        proj_group = QGroupBox("Project Settings")
-        proj_layout = QGridLayout(proj_group)
+        g = QGroupBox("Maintenance")
+        grid = QGridLayout(g)
+        b = QPushButton("Stop all scanner containers")
+        b.setToolTip("Use this if a camera seems stuck: leftover containers hold the USB device.")
+        b.clicked.connect(self._on_stop_all)
+        grid.addWidget(b, 0, 0)
+        b = QPushButton("Build / rebuild the Docker image")
+        b.clicked.connect(self._on_build)
+        grid.addWidget(b, 0, 1)
+        b = QPushButton("Clear the map database")
+        b.clicked.connect(self._on_clear_db)
+        grid.addWidget(b, 1, 0)
+        b = QPushButton("Open ROS logs folder")
+        b.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(core.LOG_DIR))))
+        grid.addWidget(b, 1, 1)
+        lay.addWidget(g)
 
-        proj_layout.addWidget(QLabel("Output Directory:"), 0, 0)
-        output_label = QLabel(str(OUTPUT_DIR))
-        proj_layout.addWidget(output_label, 0, 1)
-
-        proj_layout.addWidget(QLabel("RTAB-Map Database:"), 1, 0)
-        db_label = QLabel(str(DB_PATH))
-        proj_layout.addWidget(db_label, 1, 1)
-
-        layout.addWidget(proj_group)
-
-        # Scanner parameters
-        param_group = QGroupBox("Scanner Parameters")
-        param_layout = QGridLayout(param_group)
-
-        param_layout.addWidget(QLabel("Voxel Size (m):"), 0, 0)
-        self.voxel_spin = QDoubleSpinBox()
-        self.voxel_spin.setValue(0.012)
-        self.voxel_spin.setRange(0.001, 0.1)
-        self.voxel_spin.setSingleStep(0.001)
-        param_layout.addWidget(self.voxel_spin, 0, 1)
-
-        param_layout.addWidget(QLabel("Depth Quality Gate:"), 1, 0)
-        self.depth_quality_slider = QSlider(Qt.Orientation.Horizontal)
-        self.depth_quality_slider.setValue(30)
-        self.depth_quality_slider.setMaximum(100)
-        param_layout.addWidget(self.depth_quality_slider, 1, 1)
-
-        param_layout.addWidget(QLabel("Max Depth (mm):"), 2, 0)
-        self.max_depth_spin = QSpinBox()
-        self.max_depth_spin.setValue(2500)
-        self.max_depth_spin.setRange(500, 5000)
-        self.max_depth_spin.setSingleStep(100)
-        param_layout.addWidget(self.max_depth_spin, 2, 1)
-
-        layout.addWidget(param_group)
-
-        # System info
-        info_group = QGroupBox("System Information")
-        info_layout = QVBoxLayout(info_group)
-        self.info_text = QTextEdit()
-        self.info_text.setReadOnly(True)
-        self._update_system_info()
-        info_layout.addWidget(self.info_text)
-        layout.addWidget(info_group)
-
-        # Recovery operations (safe)
-        recover_group = QGroupBox("Recovery")
-        recover_layout = QVBoxLayout(recover_group)
-
-        stop_containers_btn = QPushButton("Stop All Scanner Containers")
-        stop_containers_btn.setStyleSheet("background-color: #44aa55; color: white;")
-        stop_containers_btn.setToolTip(
-            "Stop every running scanner-ros Docker container. Use this if the "
-            "camera seems stuck/busy or buttons stop responding — leftover "
-            "containers hold the USB camera and must be cleared."
-        )
-        stop_containers_btn.clicked.connect(self._on_stop_containers)
-        recover_layout.addWidget(stop_containers_btn)
-
-        layout.addWidget(recover_group)
-
-        # Unsafe operations
-        unsafe_group = QGroupBox("Maintenance (Use with Care)")
-        unsafe_layout = QVBoxLayout(unsafe_group)
-
-        clear_db_btn = QPushButton("Clear RTAB-Map Database")
-        clear_db_btn.setStyleSheet("background-color: #ffaa00;")
-        clear_db_btn.clicked.connect(self._on_clear_db)
-        unsafe_layout.addWidget(clear_db_btn)
-
-        rebuild_docker_btn = QPushButton("Rebuild Docker Image")
-        rebuild_docker_btn.setStyleSheet("background-color: #ffaa00;")
-        rebuild_docker_btn.clicked.connect(self._on_rebuild_docker)
-        unsafe_layout.addWidget(rebuild_docker_btn)
-
-        layout.addWidget(unsafe_group)
-        layout.addStretch()
-        return widget
+        paths = QLabel(f"Project: {core.HERE}\nOutput: {core.OUTPUT_DIR}\nMap database: {core.DB_PATH}\n"
+                       f"Docker image: {core.DOCKER_IMAGE}\nPython: {core.python_exe()}")
+        paths.setObjectName("hint")
+        paths.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        lay.addWidget(paths)
+        lay.addStretch()
+        return w
 
     def _build_log_tab(self) -> QWidget:
-        """Command output log."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        layout.addWidget(self.log_text)
-        return widget
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        self.log = QPlainTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setMaximumBlockCount(8000)
+        self.log.setFont(QFont("Monospace", 9))
+        lay.addWidget(self.log)
+        row = QHBoxLayout()
+        b = QPushButton("Clear")
+        b.clicked.connect(self.log.clear)
+        row.addWidget(b)
+        b = QPushButton("Open ROS logs folder")
+        b.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(core.LOG_DIR))))
+        row.addWidget(b)
+        row.addStretch()
+        lay.addLayout(row)
+        return w
 
-    def _setup_timers(self):
-        """Set up periodic UI updates."""
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._refresh_file_list)
-        self._timer.start(5000)  # Refresh every 5 sec
+    # --------------------------------------------------------------- settings
+    def _restore_settings(self):
+        s = self.settings
+        self.fake_cb.setChecked(s.value("fake_camera", False, type=bool))
+        self.name_edit.setText(s.value("export_name", "scan", type=str) or "scan")
+        preset = s.value("preset", list(core.EXPORT_PRESETS)[0], type=str)
+        if preset in [self.preset_combo.itemText(i) for i in range(self.preset_combo.count())]:
+            self.preset_combo.setCurrentText(preset)
+        if preset == "Custom":
+            self.range_spin.setValue(s.value("max_range", 4.0, type=float))
+            self.voxel_spin.setValue(s.value("voxel_mm", 12.0, type=float))
+            self.strategy_combo.setCurrentText(s.value("strategy", "raw_clean", type=str))
+        geo = s.value("geometry")
+        if geo:
+            self.restoreGeometry(geo)
 
-    def _resolve_export_paths(self, requested_path: str) -> Tuple[Path, Path]:
-        path = Path(requested_path)
-        suffix = path.suffix.lower()
-        if suffix in {".ply", ".stl"}:
-            stem = path.stem
-        else:
-            stem = path.name
+    def _save_settings(self):
+        s = self.settings
+        s.setValue("fake_camera", self.fake_cb.isChecked())
+        s.setValue("export_name", self.name_edit.text())
+        s.setValue("preset", self.preset_combo.currentText())
+        s.setValue("max_range", self.range_spin.value())
+        s.setValue("voxel_mm", self.voxel_spin.value())
+        s.setValue("strategy", self.strategy_combo.currentText())
+        s.setValue("geometry", self.saveGeometry())
 
-        raw_cloud = path.with_name(f"{stem}_cloud.ply")
-        stl_path = path.with_name(f"{stem}.stl")
-        return raw_cloud, stl_path
+    # ---------------------------------------------------------------- running
+    def _extra_env(self) -> dict:
+        return {core.FAKE_CAMERA_ENV: "1" if self.fake_cb.isChecked() else "0"}
 
-    def _resolve_export_request(self, requested_path: str) -> Path:
-        path = Path(requested_path)
-        suffix = path.suffix.lower()
-        if suffix == ".ply":
-            return path
-        if suffix == ".stl":
-            return path.with_suffix(".ply")
-        return path.with_suffix(".ply") if path.suffix else path.with_name(f"{path.name}.ply")
-
-    def _apply_object_capture_preset(self):
-        self.voxel_spin.setValue(0.008)
-        self.depth_quality_slider.setValue(40)
-        self.max_depth_spin.setValue(2200)
-        self.isolation_combo.setCurrentText("tabletop_object")
-        self.export_path_label.setText(str(OUTPUT_DIR / "object_scan.ply"))
-        self._log("Applied object-capture preset: tighter depth window, tabletop isolation, finer voxel.")
-
-    def _on_object_capture_scan(self):
-        self._apply_object_capture_preset()
-        self._on_quick_map()
-
-    def _on_guided_object_scan(self):
-        """Start an object scan with the on-screen capture guide active.
-        Applies the object preset and begins mapping; the coverage bar,
-        checklist and hint update from telemetry via the refresh timer."""
-        self._apply_object_capture_preset()
-        if hasattr(self, "coverage_hint"):
-            self.coverage_hint.setText("Guided scan started — follow the checklist below.")
-        self._update_capture_guide()
-        self._on_quick_map()
-
-    # Command handlers
-    def _run_command(self, cmd: str, title: str = "Command Running"):
-        """Run a Docker command in a thread and show output."""
-        if self.current_process and self.current_process.isRunning():
-            QMessageBox.warning(self, "Busy", "A command is already running.")
-            return
-
-        self.current_process = DockerCommand(cmd)
-        self.current_process.output.connect(self._on_command_output)
-        self.current_process.command_done.connect(self._on_command_finished)
-        self.current_process.start()
-
-        self.status_label.setText(f"Status: {title}")
-        self.status_label.setStyleSheet("font-weight: bold; color: orange;")
-        self._log(f"\n[{datetime.now().strftime('%H:%M:%S')}] {title}")
-        self._log(f"Command: {cmd}\n")
-
-    def _on_camera_preview(self):
-        self._cleanup_before_scan()
-        cmd = f"cd {HERE} && ./run_scanner_docker.sh camera"
-        self._run_command(cmd, "Camera Preview (30 sec)")
-
-    def _on_snap(self):
-        self._cleanup_before_scan()
-        output = str(OUTPUT_DIR / "single_frame.ply")
-        cmd = f"cd {HERE} && ./run_scanner_docker.sh snap {output}"
-        self._run_command(cmd, "Capturing Single Frame")
-
-    def _on_quick_map(self):
-        self._cleanup_before_scan()
-        cmd = f"cd {HERE} && ./run_scanner_docker.sh map"
-        self._run_command(cmd, "Quick SLAM Mapping")
-
-    def _on_full_gui(self):
-        self._cleanup_before_scan()
-        cmd = f"cd {HERE} && ./run_scanner_docker.sh gui"
-        self._run_command(cmd, "Full SLAM GUI (check your display window)")
-
-    def _on_export(self):
-        output = self.export_path_label.text()
-        export_request = self._resolve_export_request(output)
-        max_range_m = self.max_depth_spin.value() / 1000.0
-        voxel_m = self.voxel_spin.value()
-        cmd = (
-            f"cd {HERE} && ./run_scanner_docker.sh export rtabmap.db {export_request} "
-            f"{max_range_m:.3f} {voxel_m:.4f}"
-        )
-        self._run_command(cmd, f"Exporting to {export_request}")
-
-    def _on_view_cloud(self):
-        output = self.export_path_label.text()
-        raw_cloud, _ = self._resolve_export_paths(output)
-        candidate = raw_cloud if raw_cloud.exists() else Path(output)
-        if not candidate.exists():
-            QMessageBox.warning(self, "Not Found", f"File not found: {candidate}")
-            return
-        cmd = f"./.venv/bin/python view_cloud.py {candidate}"
-        self._run_command(cmd, f"Viewing {candidate.name}")
-
-    def _on_isolate(self):
-        strategy = self.isolation_combo.currentText()
-        output = self.export_path_label.text()
-        raw_cloud, _ = self._resolve_export_paths(output)
-        candidate = raw_cloud if raw_cloud.exists() else Path(output)
-        if not candidate.exists():
-            QMessageBox.warning(self, "Not Found", f"No exported cloud found at {candidate}")
-            return
-        voxel_m = self.voxel_spin.value()
-        cmd = f"./.venv/bin/python point_cloud_tools.py {candidate} --strategy {strategy} --voxel {voxel_m:.4f}"
-        self._run_command(cmd, f"Isolating with {strategy}")
-
-    def _on_generate_stl(self):
-        strategy = self.isolation_combo.currentText()
-        output = self.export_path_label.text()
-        raw_cloud, stl_path = self._resolve_export_paths(output)
-        candidate = raw_cloud if raw_cloud.exists() else Path(output)
-        if not candidate.exists():
-            QMessageBox.warning(self, "Not Found", f"No exported cloud found at {candidate}")
-            return
-        voxel_m = self.voxel_spin.value()
-        cmd = (
-            f"./.venv/bin/python point_cloud_tools.py {candidate} "
-            f"--strategy {strategy} --voxel {voxel_m:.4f} --mesh-output {stl_path}"
-        )
-        self._run_command(cmd, f"Building STL {stl_path.name}")
-
-    def _on_export_and_stl(self):
-        strategy = self.isolation_combo.currentText()
-        output = self.export_path_label.text()
-        export_request = self._resolve_export_request(output)
-        raw_cloud, stl_path = self._resolve_export_paths(output)
-        max_range_m = self.max_depth_spin.value() / 1000.0
-        voxel_m = self.voxel_spin.value()
-        cmd = (
-            f"cd {HERE} && ./run_scanner_docker.sh export rtabmap.db {export_request} "
-            f"{max_range_m:.3f} {voxel_m:.4f} && "
-            f"./.venv/bin/python point_cloud_tools.py {raw_cloud} "
-            f"--strategy {strategy} --voxel {voxel_m:.4f} --mesh-output {stl_path}"
-        )
-        self._run_command(cmd, f"Exporting STL via {strategy}")
-
-    def _on_multi_view(self):
-        cmd = f"cd {HERE} && ./run_scanner_docker.sh multi"
-        self._run_command(cmd, "Multi-Camera RViz (check your display window)")
-
-    def _on_multi_slam(self):
-        reply = QMessageBox.question(
-            self, "3-Camera SLAM (experimental)",
-            "Brings up all 3 cameras and starts SLAM. Before you click Yes:\n\n"
-            "• It takes ~40 seconds before the window appears (the 3 cameras "
-            "open one at a time on the shared USB bus).\n"
-            "• It needs GOOD calibration first (use Check Overlap + Auto-"
-            "Calibration below until overlap is GOOD) or the map stays empty.\n"
-            "• Do NOT click repeatedly — wait for the window. Hit 'Stop / Cancel' "
-            "to abort (that now properly frees the cameras).\n\n"
-            "Launch now?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        self._cleanup_before_scan()
-        cmd = f"cd {HERE} && ./run_scanner_docker.sh multi_slam"
-        self._run_command(cmd, "3-Cam SLAM (~40s to window; needs calibration; Stop to cancel)")
-
-    def _on_overlap_check(self):
-        self._cleanup_before_scan()
-        cmd = f"cd {HERE} && ./.venv/bin/python overlap_check.py"
-        self._run_command(cmd, "Checking camera overlap (aim for GOOD on every pair)")
-
-    def _on_calibrate(self):
-        self._cleanup_before_scan()
-        cmd = f"cd {HERE} && ./.venv/bin/python calibrate_multi.py"
-        self._run_command(cmd, "Running Markerless Calibration")
-
-    # --- Station / sweep scanning handlers ---
-    def _sweep_dir(self) -> Path:
-        return OUTPUT_DIR / "sweeps"
-
-    def _count_sweeps(self) -> int:
-        d = self._sweep_dir()
-        return len(list(d.glob("sweep_*.ply"))) if d.exists() else 0
-
-    def _refresh_sweep_count(self):
-        if hasattr(self, "station_count_label"):
-            self.station_count_label.setText(f"Sweeps captured: {self._count_sweeps()}")
-
-    def _on_station_capture(self):
-        self._cleanup_before_scan()
-        frames = self.station_frames_spin.value()
-        n = self._count_sweeps()
-        cmd = f"cd {HERE} && ./run_scanner_docker.sh station capture --frames {frames}"
-        self._run_command(cmd, f"Capturing sweep {n:02d} ({frames} frames/cam)")
-
-    def _on_station_build(self):
-        if self._count_sweeps() == 0:
-            QMessageBox.warning(self, "No Sweeps",
-                                "Capture at least one sweep before building.")
-            return
-        voxel_m = self.voxel_spin.value()
-        cmd = (f"cd {HERE} && ./run_scanner_docker.sh station build "
-               f"--voxel {voxel_m:.4f}")
-        self._run_command(cmd, "Building room from sweeps (pose-graph fusion)")
-
-    def _on_station_view(self):
-        room = OUTPUT_DIR / "room.ply"
-        if not room.exists():
-            QMessageBox.warning(self, "Not Found",
-                                f"No room cloud yet: {room}\nRun 'Build Room' first.")
-            return
-        cmd = f"cd {HERE} && ./.venv/bin/python view_cloud.py {room}"
-        self._run_command(cmd, "Viewing room.ply")
-
-    def _on_station_clear(self):
-        if self._count_sweeps() == 0:
-            self._refresh_sweep_count()
-            return
-        reply = QMessageBox.question(
-            self, "Clear Sweeps",
-            f"Delete all {self._count_sweeps()} captured sweep(s)?")
-        if reply == QMessageBox.StandardButton.Yes:
-            subprocess.run(f"cd {HERE} && ./run_scanner_docker.sh station clear",
-                           shell=True, capture_output=True, text=True)
-            self._log("Cleared all sweeps.")
-            self._refresh_sweep_count()
-
-    def _on_browse_export(self):
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Export Point Cloud", str(OUTPUT_DIR / "scan.ply"),
-            "PLY Files (*.ply);;STL Files (*.stl);;All Files (*)"
-        )
-        if file_path:
-            self.export_path_label.setText(file_path)
-
-    def _on_clear_db(self):
-        reply = QMessageBox.question(
-            self, "Clear Database?",
-            "This will delete rtabmap.db and lose all current map data.\nProceed?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            if DB_PATH.exists():
-                DB_PATH.unlink()
-            QMessageBox.information(self, "Done", "Database cleared.")
-
-    def _stop_scanner_containers(self) -> int:
-        """Stop all running scanner-ros containers. Returns how many were stopped.
-
-        Runs docker directly (not via _run_command) so it works even while a
-        scan/camera command is still running — that's exactly when it's needed.
-        Raises on docker failure so callers can decide how loud to be.
-        """
-        # End any command this GUI is tracking so it no longer reports "busy".
-        if self.current_process and self.current_process.isRunning():
-            self.current_process.terminate()
-            self._log("[Containers] terminated tracked command")
-
-        result = subprocess.run(
-            "sudo docker ps -q --filter ancestor=scanner-ros:jazzy",
-            shell=True, capture_output=True, text=True, timeout=30
-        )
-        ids = result.stdout.split()
-        if not ids:
-            return 0
-        subprocess.run(
-            ["sudo", "docker", "stop", *ids],
-            capture_output=True, text=True, timeout=120
-        )
-        return len(ids)
-
-    def _cleanup_before_scan(self):
-        """Clear any leftover containers so a new scan gets the camera cleanly."""
-        try:
-            n = self._stop_scanner_containers()
-            if n:
-                self._log(f"[Auto-cleanup] cleared {n} leftover container(s) before scan")
-        except Exception as e:
-            self._log(f"[Auto-cleanup] warning: {e}")
-
-    def _on_stop_containers(self):
-        """Stop All Scanner Containers button handler (with user feedback)."""
-        try:
-            n = self._stop_scanner_containers()
-        except Exception as e:
-            self._log(f"[Stop Containers] error: {e}")
-            QMessageBox.warning(self, "Error", f"Failed to stop containers:\n{e}")
-            return
-
-        if n == 0:
-            self._log("[Stop Containers] none were running.")
+    def _run(self, cmd: core.Command) -> bool:
+        if self.runner.busy():
             QMessageBox.information(
-                self, "Containers", "No scanner containers were running."
-            )
-            return
+                self, "Busy", f"“{self.runner.cmd.title}” is still running.\n\n"
+                "Press Stop first (it also frees the camera).")
+            return False
+        if cmd.needs_camera and not self.fake_cb.isChecked():
+            cams = core.detect_xtions()
+            if len(cams) < cmd.needs_camera:
+                QMessageBox.warning(
+                    self, "No camera",
+                    f"This needs {cmd.needs_camera} depth camera(s); "
+                    f"{core.camera_summary(cams).lower()}.\n\n"
+                    "Plug the Xtion into this machine (it should show up in the header "
+                    "within a couple of seconds), or tick “simulated camera” on the "
+                    "Setup tab to try the app without hardware.")
+                return False
+        self._log("")
+        self._log(f"[{datetime.now():%H:%M:%S}] ▶ {cmd.title}")
+        self._log(f"$ {cmd.shell_preview()}")
+        return self.runner.start(cmd, self._extra_env())
 
-        msg = f"Stopped {n} scanner container(s)."
-        self._log(f"[Stop Containers] {msg}")
-        self.status_label.setText("Status: Idle")
-        self.status_label.setStyleSheet("font-weight: bold; color: green;")
-        QMessageBox.information(self, "Containers", msg)
+    def _on_started(self, cmd: core.Command):
+        self.run_label.setText(f"Running: {cmd.title}" + ("  (press Stop to finish)" if cmd.long_running else ""))
+        self.run_label.setStyleSheet(f"color: {ORANGE};")
+        self.stop_btn.setEnabled(True)
+        self.statusBar().showMessage(cmd.title)
 
-    def _on_rebuild_docker(self):
-        reply = QMessageBox.question(
-            self, "Rebuild Docker Image?",
-            "This will rebuild scanner-ros:jazzy from Dockerfile.\nProceed?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            cmd = f"cd {HERE} && ./run_scanner_docker.sh build"
-            self._run_command(cmd, "Building Docker Image")
+    def _on_finished(self, code: int, cmd: core.Command | None):
+        title = cmd.title if cmd else "command"
+        if code == 0:
+            text, colour, msg = "Idle", GREY, f"Finished: {title}"
+        elif code == -2:
+            text, colour, msg = "Idle (stopped)", GREY, f"Stopped: {title}"
+        else:
+            text, colour, msg = f"Failed: {title} (exit {code})", RED, f"Failed (exit {code}): {title} — see the Log tab"
+            self.tabs.setCurrentIndex(4)
+        self.run_label.setText(text)
+        self.run_label.setStyleSheet(f"color: {colour};")
+        self.stop_btn.setEnabled(False)
+        self.statusBar().showMessage(msg, 15000)
+        self._log(f"[{datetime.now():%H:%M:%S}] {msg}")
+        self._refresh_files()
+        self._refresh_sweeps()
 
     def _on_stop(self):
-        """Stop the current command AND any running scanner container.
+        if self.runner.busy():
+            self.runner.stop()
+        else:
+            self._on_stop_all()
 
-        Terminating the worker thread alone does NOT kill the `sudo docker run`
-        child or its container — they keep running and hold the USB cameras
-        (this is what left the Xtions stuck). So stop the containers explicitly;
-        _stop_scanner_containers() also terminates the tracked thread.
-        """
+    def _on_stop_all(self):
+        self._log("[containers] stopping every scanner container…")
+        n = core.stop_containers()
+        self._log(f"[containers] stopped {n}")
+        self.statusBar().showMessage(f"Stopped {n} container(s)", 8000)
+
+    # --------------------------------------------------------------- handlers
+    def _on_export(self):
+        name = self._export_name()
+        self._run(core.cmd_export(name, self.range_spin.value(), self.voxel_spin.value() / 1000.0))
+
+    def _export_name(self) -> str:
+        name = self.name_edit.text().strip() or "scan"
+        name = name[:-4] if name.lower().endswith(".ply") else name
+        return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in name)
+
+    def _update_export_target(self):
+        self.export_target.setText(f"→ {core.export_cloud_path(self._export_name())}")
+
+    def _apply_preset(self, name: str):
+        p = core.EXPORT_PRESETS.get(name)
+        if p:
+            self.range_spin.setValue(p["max_range"])
+            self.voxel_spin.setValue(p["voxel"] * 1000.0)
+            self.strategy_combo.setCurrentText(p["strategy"])
+
+    def _selected_file(self) -> Path | None:
+        rows = self.files.selectionModel().selectedRows() if self.files.selectionModel() else []
+        if rows:
+            item = self.files.item(rows[0].row(), 0)
+            if item:
+                return core.OUTPUT_DIR / item.text()
+        return None
+
+    def _clean_source(self) -> Path | None:
+        sel = self._selected_file()
+        if sel and sel.suffix.lower() == ".ply":
+            return sel
+        cand = core.export_cloud_path(self._export_name())
+        return cand if cand.exists() else None
+
+    def _update_clean_input(self):
+        src = self._clean_source()
+        self.clean_input.setText(f"input: {src.name}" if src else
+                                 "input: select a .ply above or export one first")
+
+    def _on_clean(self, stl: bool):
+        src = self._clean_source()
+        if not src:
+            QMessageBox.warning(self, "No cloud", "Export a cloud first, or select a .ply in the list.")
+            return
+        stl_out = src.with_name(src.stem.replace("_cloud", "") + ".stl") if stl else None
+        self._run(core.cmd_isolate(src, self.strategy_combo.currentText(),
+                                   self.voxel_spin.value() / 1000.0, stl_out))
+
+    def _on_export_clean_stl(self):
+        """Export, then (when that finishes) isolate + STL. Chained via the finished signal."""
+        name = self._export_name()
+        strategy = self.strategy_combo.currentText()
+        voxel = self.voxel_spin.value() / 1000.0
+
+        def after_export(code, cmd):
+            self.runner.finished.disconnect(after_export)
+            if code == 0:
+                src = core.export_cloud_path(name)
+                self._run(core.cmd_isolate(src, strategy, voxel, core.OUTPUT_DIR / f"{name}.stl"))
+
+        if self._run(core.cmd_export(name, self.range_spin.value(), voxel)):
+            self.runner.finished.connect(after_export)
+
+    def _on_view(self):
+        f = self._selected_file()
+        if not f:
+            QMessageBox.information(self, "Nothing selected", "Select a file in the list first.")
+            return
+        self._view_file(f)
+
+    def _view_file(self, path: Path):
+        if not path.exists():
+            QMessageBox.warning(self, "Not found", f"{path} does not exist yet.")
+            return
+        cmd = core.cmd_view(path)
+        self._log(f"$ {cmd.shell_preview()}   (viewer window, detached)")
+        ok, _pid = QProcess.startDetached(cmd.argv[0], cmd.argv[1:], str(cmd.cwd))
+        if not ok:
+            QMessageBox.warning(self, "Viewer", "Could not start the viewer (is .venv set up?)")
+
+    def _on_multi_slam(self):
+        r = QMessageBox.question(
+            self, "3-camera SLAM (experimental)",
+            "Brings up all 3 cameras and starts fused SLAM.\n\n"
+            "• ~40 s before the window appears (cameras open one at a time).\n"
+            "• Needs GOOD calibration first, or the map stays empty.\n"
+            "• Press Stop to abort (it frees the cameras).\n\nLaunch now?")
+        if r == QMessageBox.StandardButton.Yes:
+            self._run(core.cmd_multi_slam())
+
+    def _on_station_build(self):
+        if core.count_sweeps() == 0:
+            QMessageBox.warning(self, "No sweeps", "Capture at least one sweep first.")
+            return
+        self._run(core.cmd_station("build", "--voxel", f"{self.voxel_spin.value() / 1000.0:.4f}"))
+
+    def _on_station_clear(self):
+        n = core.count_sweeps()
+        if n and QMessageBox.question(self, "Clear sweeps", f"Delete all {n} sweep(s)?") \
+                == QMessageBox.StandardButton.Yes:
+            self._run(core.cmd_station("clear"))
+
+    def _on_build(self):
+        if QMessageBox.question(self, "Build image",
+                                f"Build {core.DOCKER_IMAGE} from the Dockerfile?\n"
+                                "This downloads ROS packages and takes several minutes.") \
+                == QMessageBox.StandardButton.Yes:
+            self._run(core.cmd_build_image())
+
+    def _on_clear_db(self):
+        if self.runner.busy():
+            QMessageBox.warning(self, "Busy", "Stop the running command first.")
+            return
+        if QMessageBox.question(self, "Clear map", "Delete rtabmap.db (the current map)?") \
+                != QMessageBox.StandardButton.Yes:
+            return
         try:
-            n = self._stop_scanner_containers()
-            self._log(f"[STOPPED by user] killed {n} scanner container(s)")
-        except Exception as e:
-            self._log(f"[STOPPED by user] container-stop warning: {e}")
-            if self.current_process and self.current_process.isRunning():
-                self.current_process.terminate()
-        self.status_label.setText("Status: Stopped")
-        self.status_label.setStyleSheet("font-weight: bold; color: red;")
+            if core.DB_PATH.exists():
+                core.DB_PATH.unlink()
+            self._log("[db] rtabmap.db deleted")
+        except OSError as e:
+            QMessageBox.warning(self, "Clear map", f"Could not delete the database:\n{e}")
 
-    def _on_command_output(self, text: str):
-        """Append command output to log."""
-        self._log(text)
+    def _on_fake_toggled(self, on: bool):
+        self._log(f"[setup] simulated camera {'ON' if on else 'OFF'}")
+        self._on_cameras(self.cameras)
 
-    def _on_command_finished(self, code: int):
-        """Handle command completion."""
-        status = "Completed" if code == 0 else f"Failed (exit {code})"
-        self.status_label.setText(f"Status: {status}")
-        self.status_label.setStyleSheet(
-            "font-weight: bold; color: green;" if code == 0
-            else "font-weight: bold; color: red;"
-        )
-        self._log(f"\n[{status}]\n")
-        self._refresh_sweep_count()
+    # ---------------------------------------------------------------- doctor
+    def _run_doctor(self, full: bool):
+        if self.doctor_thread and self.doctor_thread.isRunning():
+            return
+        self.doctor_btn.setEnabled(False)
+        self.doctor_thread = DoctorThread(full)
+        self.doctor_thread.done.connect(self._on_doctor)
+        self.doctor_thread.start()
 
-    def _on_telemetry_update(self, telemetry: dict):
-        """Update telemetry display."""
-        self.telemetry = telemetry
-        self.status_label.setText(f"Status: {telemetry['status'].title()}")
-        color = "green" if telemetry["status"] == "online" else "orange"
-        self.status_label.setStyleSheet(f"font-weight: bold; color: {color};")
+    def _on_doctor(self, checks: list):
+        self.doctor_checks = checks
+        self.doctor_btn.setEnabled(True)
+        t = self.doctor_table
+        t.setRowCount(len(checks))
+        for i, c in enumerate(checks):
+            mark = "✔" if c.ok else ("✘" if c.required else "△")
+            colour = GREEN if c.ok else (RED if c.required else ORANGE)
+            t.setItem(i, 0, QTableWidgetItem(f"{mark}  {c.name}"))
+            t.setItem(i, 1, QTableWidgetItem(c.detail))
+            t.setItem(i, 2, QTableWidgetItem("" if c.ok else c.hint))
+            for col in range(3):
+                item = t.item(i, col)
+                item.setToolTip(c.hint)
+                if not c.ok:
+                    item.setForeground(QColor(colour))
+        t.resizeRowsToContents()
+        problems = core.doctor_blocking_problems(checks)
+        if problems:
+            names = ", ".join(p.name for p in problems)
+            self._log(f"[setup] needs attention: {names}")
+            self.statusBar().showMessage(f"Setup needs attention: {names} (see Setup tab)", 20000)
+        else:
+            self._log("[setup] all required checks passed")
 
-        self.nodes_label.setText(f"Nodes: {telemetry['nodes']}")
-        self.db_size_label.setText(f"DB: {telemetry['map_size_mb']} MB")
+    # ----------------------------------------------------------------- polls
+    def _on_cameras(self, cams: list):
+        self.cameras = cams
+        if self.fake_cb.isChecked():
+            self.cam_label.setText("◐ Simulated camera (Setup tab)")
+            self.cam_label.setStyleSheet(f"color: {BLUE};")
+        elif cams:
+            self.cam_label.setText("● " + core.camera_summary(cams))
+            self.cam_label.setStyleSheet(f"color: {GREEN};")
+        else:
+            self.cam_label.setText("○ No Xtion detected — plug it in")
+            self.cam_label.setStyleSheet(f"color: {RED};")
 
-        self.kf_label.setText(str(telemetry["keyframes"]))
-        self.links_label.setText(str(telemetry["links"]))
-        self.loop_label.setText(telemetry["last_loop_closure"] or "—")
-        self._update_capture_guide()
+    def _on_telemetry(self, t: dict):
+        self.telemetry = t
+        scanning = self.runner.busy() and self.runner.cmd is not None and \
+            self.runner.cmd.argv[-1:] and self.runner.cmd.argv[1] in ("map", "gui", "multi_slam")
+        if not t["db_exists"]:
+            self.map_label.setText("Map: none yet")
+        else:
+            self.map_label.setText(f"Map: {t['nodes']} keyframes · {t['loop_closures']} loop closures · "
+                                   f"{t['map_size_mb']} MB")
+        self.stat_labels["nodes"].setText(str(t["nodes"]))
+        self.stat_labels["links"].setText(str(t["links"]))
+        lc = str(t["loop_closures"]) + (f"  (last {t['last_loop_closure']})" if t["last_loop_closure"] else "")
+        self.stat_labels["loop_closures"].setText(lc)
+        self.stat_labels["map_size_mb"].setText(f"{t['map_size_mb']} MB" if t["db_exists"] else "—")
+        if t["mtime"]:
+            age = time.time() - t["mtime"]
+            self.stat_labels["updated"].setText("just now" if age < 5 else f"{age:.0f} s ago"
+                                                if age < 3600 else datetime.fromtimestamp(t["mtime"]).strftime("%H:%M"))
+        else:
+            self.stat_labels["updated"].setText("—")
+        hint = core.scan_hint(t, scanning)
+        if t.get("error"):
+            hint += f"  (db: {t['error']})"
+        self.hint_label.setText(hint)
 
-    def _refresh_file_list(self):
-        """Refresh the list of exported files."""
-        if OUTPUT_DIR.exists():
-            files = sorted(list(OUTPUT_DIR.glob("*.ply")) + list(OUTPUT_DIR.glob("*.stl")))
-            file_text = "\n".join([f"• {f.name} ({f.stat().st_size / 1024 / 1024:.1f} MB)"
-                                   for f in files[-10:]])  # Last 10
-            self.files_list.setText(file_text or "(no files yet)")
+    def _tick_preview(self):
+        running_cam = self.runner.busy() and self.runner.cmd is not None and \
+            self.runner.cmd.needs_camera > 0
+        self.preview.refresh(running_cam)
 
-    def _refresh_roster(self):
-        """Refresh the camera roster from cameras.json."""
-        roster_file = HERE / "cameras.json"
-        if roster_file.exists():
-            try:
-                with open(roster_file) as f:
-                    data = json.load(f)
-                text = json.dumps(data, indent=2)
-                self.roster_text.setText(text)
-            except Exception as e:
-                self.roster_text.setText(f"Error reading cameras.json: {e}")
+    def _refresh_files(self):
+        if not hasattr(self, "files"):
+            return
+        selected = self._selected_file()
+        files = list(reversed(core.list_outputs()))
+        self.files.setRowCount(len(files))
+        for i, p in enumerate(files):
+            st = p.stat()
+            self.files.setItem(i, 0, QTableWidgetItem(p.name))
+            self.files.setItem(i, 1, QTableWidgetItem(core.human_size(st.st_size)))
+            self.files.setItem(i, 2, QTableWidgetItem(
+                datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")))
+            if selected and p == selected:
+                self.files.selectRow(i)
+        self._update_clean_input()
 
-    def _update_system_info(self):
-        """Update system info display."""
-        info = [
-            f"Docker Image: {DOCKER_IMAGE}",
-            f"Project Dir: {HERE}",
-            f"Output Dir: {OUTPUT_DIR}",
-            f"Database: {DB_PATH}",
-        ]
-        self.info_text.setText("\n".join(info))
+    def _refresh_sweeps(self):
+        if hasattr(self, "sweeps_label"):
+            self.sweeps_label.setText(f"Sweeps captured: {core.count_sweeps()}")
 
+    # ------------------------------------------------------------------ misc
     def _log(self, text: str):
-        """Append to log."""
-        self.log_text.append(text)
+        self.log.appendPlainText(text)
+        if text and not text.startswith("$"):
+            self.statusBar().showMessage(text[:160], 6000)
 
-    def closeEvent(self, event):
-        """Clean up on exit."""
-        self.monitor.stop()
-        if self.current_process and self.current_process.isRunning():
-            self.current_process.terminate()
-        self.monitor.wait()
-        super().closeEvent(event)
+    def closeEvent(self, e):
+        self._save_settings()
+        self.poller.stop()
+        if self.runner.busy():
+            r = QMessageBox.question(
+                self, "Still running",
+                f"“{self.runner.cmd.title}” is still running. Stop it and quit?")
+            if r != QMessageBox.StandardButton.Yes:
+                self.poller.start()
+                e.ignore()
+                return
+            self.runner.stop()
+            self.runner.proc.waitForFinished(30000)
+        self.poller.wait(2000)
+        super().closeEvent(e)
 
 
-def main():
-    app = QApplication(sys.argv)
-    window = ScannerGUI()
-    window.show()
-    sys.exit(app.exec())
+# ---------------------------------------------------------------------- main
+class ScriptDriver(QObject):
+    """Drives the window from a step list (for end-to-end tests on a real display):
+    "preview", "scan", "rtabmap", "stop", "wait N", "shot PATH", "tab N",
+    "status", "quit". Steps call the same handlers the buttons do."""
+
+    def __init__(self, win: ScannerWindow, steps: list[str]):
+        super().__init__(win)
+        self.win, self.steps, self.rc = win, steps, 0
+        QTimer.singleShot(500, self.next)
+
+    def _say(self, text: str):
+        print(f"[script] {text}", flush=True)
+
+    def next(self):
+        if not self.steps:
+            return
+        step = self.steps.pop(0).strip()
+        verb, _, arg = step.partition(" ")
+        delay = 300
+        w = self.win
+        try:
+            if verb == "wait":
+                delay = int(float(arg) * 1000)
+            elif verb == "preview":
+                self._say("preview -> " + str(w._run(core.cmd_preview())))
+            elif verb == "scan":
+                self._say("scan -> " + str(w._run(core.cmd_map(w.fresh_cb.isChecked()))))
+            elif verb == "rtabmap":
+                self._say("rtabmap window -> " + str(w._run(core.cmd_gui(w.fresh_cb.isChecked()))))
+            elif verb == "stop":
+                w._on_stop()
+                self._say("stop requested")
+            elif verb == "tab":
+                w.tabs.setCurrentIndex(int(arg))
+            elif verb == "shot":
+                QApplication.processEvents()
+                w.grab().save(arg)
+                self._say(f"screenshot {arg}")
+            elif verb == "status":
+                live = core.read_live_status()
+                cams = [c["name"] for c in core.running_containers()]
+                t = core.read_telemetry()
+                self._say(f"running={w.runner.busy()} title={w.run_label.text()!r} "
+                          f"containers={cams} live_fresh={None if live is None else live['fresh']} "
+                          f"nodes={t['nodes']} loops={t['loop_closures']}")
+            elif verb == "quit":
+                self._say("quit")
+                w.close()
+                QApplication.instance().quit()
+                return
+            else:
+                self._say(f"unknown step {step!r}")
+                self.rc = 2
+        except Exception as e:  # keep going; report at the end
+            self._say(f"step {step!r} failed: {e}")
+            self.rc = 1
+        QTimer.singleShot(delay, self.next)
+
+
+def smoke_test(win: ScannerWindow, shot_dir: Path | None) -> int:
+    """Offscreen self-test: every tab builds, every command builder works,
+    optional screenshots of each tab. Returns the exit code."""
+    problems = []
+    for name in ("cmd_preview", "cmd_map", "cmd_gui", "cmd_export", "cmd_snap", "cmd_multi"):
+        try:
+            c = getattr(core, name)()
+            assert c.argv and c.title
+        except Exception as e:
+            problems.append(f"{name}: {e}")
+    if shot_dir:
+        shot_dir.mkdir(parents=True, exist_ok=True)
+        for i in range(win.tabs.count()):
+            win.tabs.setCurrentIndex(i)
+            QApplication.processEvents()
+            win.grab().save(str(shot_dir / f"tab{i}_{win.tabs.tabText(i).replace('&', '').replace(' ', '_')}.png"))
+        win.tabs.setCurrentIndex(0)
+    if win.doctor_thread:
+        win.doctor_thread.wait(60000)
+        QApplication.processEvents()
+    print(f"smoke: {win.tabs.count()} tabs, {len(win.doctor_checks)} doctor checks, "
+          f"{len(problems)} problems")
+    for p in problems:
+        print("  -", p)
+    return 1 if problems else 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="3D scanner control panel")
+    ap.add_argument("--smoke", action="store_true", help="build the UI offscreen, self-test, exit")
+    ap.add_argument("--screenshot", metavar="DIR", help="with --smoke: save a PNG of each tab")
+    ap.add_argument("--script", metavar="STEPS",
+                    help="comma-separated steps to run (test harness): preview, scan, rtabmap, "
+                         "stop, 'wait N', 'shot PATH', 'tab N', status, quit")
+    ap.add_argument("--fake-camera", action="store_true",
+                    help="start with the simulated camera switched on")
+    args = ap.parse_args(argv)
+    if args.smoke:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+    app = QApplication(sys.argv[:1])
+    app.setApplicationName("3D Scanner")
+    app.setStyleSheet(APP_QSS)
+    win = ScannerWindow(smoke=args.smoke)
+    if args.fake_camera:
+        win.fake_cb.setChecked(True)
+    if args.smoke:
+        win.show()
+        QApplication.processEvents()
+        rc = smoke_test(win, Path(args.screenshot) if args.screenshot else None)
+        win.poller.stop()
+        win.poller.wait(2000)
+        return rc
+    win.show()
+    driver = ScriptDriver(win, args.script.split(",")) if args.script else None
+    rc = app.exec()
+    return driver.rc if driver else rc
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

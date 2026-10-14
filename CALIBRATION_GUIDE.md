@@ -40,8 +40,7 @@ Aim for the *minimum* fan that still gives every adjacent pair ~30–50% overlap
 
 ### 3. Check the overlap BEFORE calibrating
 ```bash
-cd /home/jim/Desktop/scanner
-.venv/bin/python overlap_check.py
+./run_scanner_docker.sh overlap        # or: Multi-Camera tab → "1 · Check camera overlap"
 ```
 It captures each camera and reports per pair:
 - **GOOD** (≥0.40) — ready to calibrate
@@ -55,7 +54,7 @@ one pair: `.venv/bin/python overlap_check.py camera1 camera2`.
 ### 4. Calibrate
 Once all pairs are GOOD:
 ```bash
-.venv/bin/python calibrate_multi.py
+./run_scanner_docker.sh calibrate      # or: Multi-Camera tab → "2 · Auto-calibrate"
 ```
 It captures each camera, solves the full 6-DOF transforms (FPFH+RANSAC→ICP,
 chained pairwise), and writes `output/camera_extrinsics.json`. Watch the printed

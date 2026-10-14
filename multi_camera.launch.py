@@ -108,9 +108,10 @@ def camera_graph(ns, device_id, depth_mode, color_mode, depth_only=False):
 
 
 def present_xtions():
-    """Scan sysfs for every connected Xtion PRO LIVE (1d27:0601) -> {port: uri},
-    sorted by port path. The bus/address in the URI changes on every
-    re-enumeration, so we read the live busnum/devnum here at launch."""
+    """Scan sysfs for every connected PrimeSense device (vendor 1d27: Xtion PRO
+    LIVE is 0601, Carmine 0609, …) -> {port: uri}, sorted by port path. The
+    bus/address in the URI changes on every re-enumeration, so we read the live
+    busnum/devnum here at launch."""
     base = "/sys/bus/usb/devices"
     found = {}
     try:
@@ -124,15 +125,14 @@ def present_xtions():
                 if f.read().strip() != "1d27":
                     continue
             with open(os.path.join(d, "idProduct")) as f:
-                if f.read().strip() != "0601":
-                    continue
+                product = f.read().strip()
             with open(os.path.join(d, "busnum")) as f:
                 bus = int(f.read().strip())
             with open(os.path.join(d, "devnum")) as f:
                 addr = int(f.read().strip())
-        except OSError:
+        except (OSError, ValueError):
             continue
-        found[name] = f"1d27/0601@{bus}/{addr}"
+        found[name] = f"1d27/{product}@{bus}/{addr}"
     return dict(sorted(found.items()))
 
 
