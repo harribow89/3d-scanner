@@ -32,6 +32,8 @@ import open3d as o3d
 from open3d.pipelines import registration as reg
 from scipy.spatial.transform import Rotation as R
 
+from scanner_core import docker_prefix
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 IMAGE = "scanner-ros:jazzy"
 VOXEL = 0.012  # m
@@ -79,12 +81,13 @@ def capture_all(cams, frames=10):
     print(f"[calib] sequential capture of {len(cams)} camera(s), one at a time "
           f"({frames} frames each)…")
     run = subprocess.run(
-        ["sudo", "docker", "run", "--rm", "--privileged", "--network", "host",
-         "-v", "/dev/bus/usb:/dev/bus/usb", "-v", f"{HERE}:/scanner",
-         IMAGE, "bash", "-lc", cmd],
+        docker_prefix() + ["run", "--rm", "--label", "scanner-ros=1", "--privileged",
+                           "--network", "host",
+                           "-v", "/dev/bus/usb:/dev/bus/usb", "-v", f"{HERE}:/scanner",
+                           IMAGE, "bash", "-lc", cmd],
         capture_output=True, text=True, timeout=90 * len(cams) + 60)
     print(run.stdout[-1500:]); print(run.stderr[-300:])
-    subprocess.run(["sudo", "chown", "-R", f"{os.getuid()}:{os.getgid()}",
+    subprocess.run(["sudo", "-n", "chown", "-R", f"{os.getuid()}:{os.getgid()}",
                     os.path.join(HERE, "output")], check=False)
 
 
