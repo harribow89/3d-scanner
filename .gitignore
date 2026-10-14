@@ -1,13 +1,19 @@
 __pycache__/
-venv/
-.venv/
+venv
+.venv
 *.pyc
 
-# host-side runtime/env dirs (created by Docker runs and the venv)
+# host-side runtime dirs written by the Docker container / the GUI
+.container_home/
+.live/
+ros_logs/
+# the old layout left these in the project root (now under .container_home/)
 .ros/
 .config/
 .rtabmap/
 .rtabmap
+.cache/
+Documents/
 
 # scan outputs
 *.oni
@@ -19,7 +25,6 @@ venv/
 *.g2o
 *.dot
 rgb_*/
-ros_logs/
 output/
 
 # db backups from resets

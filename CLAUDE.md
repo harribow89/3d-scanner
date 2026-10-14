@@ -1,201 +1,109 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
-## Project Overview
+## What this is
 
-**ROS 3D Scanner** — An AI-assisted point cloud scanning application using RTAB-Map + OpenNI2 (PrimeSense/ASUS Xtion depth cameras). A Claude or GPT-4 agent watches the scan in real time and issues control commands to optimize mesh quality.
+A 3D scanner for PrimeSense / ASUS Xtion depth cameras. ROS 2 Jazzy + RTAB-Map +
+OpenNI2 run inside the `scanner-ros:jazzy` Docker image (built from `Dockerfile`);
+the host runs a PySide6 control panel and Open3D post-processing from `.venv`.
+No ROS on the host. The project folder path contains a space — every command
+must be an argv list or a quoted path.
 
 ## Architecture
 
-### Core Stack
+- **run_scanner_docker.sh** — the single launcher. Every mode (`doctor`, `camera`,
+  `preview`, `snap`, `map`, `gui`, `viz`, `export`, `multi`, `multi_slam`,
+  `overlap`, `calibrate`, `station`, `stop`, `logs`, `shell`, `build`). Containers
+  are named `scanner-<mode>-<pid>` and labelled `scanner-ros=1`; an EXIT trap
+  `docker stop`s them on SIGINT/SIGTERM. Camera modes call `require_camera N`
+  (sysfs vendor `1d27`) and exit 3 fast when nothing is plugged in. ROS logs go to
+  `ros_logs/<mode>.log`; the container's `$HOME` is `.container_home/`. The
+  in-container scripts share `PRELUDE` (`start_camera`, `wait_topic`, `run_main`,
+  `graceful`) so `docker stop` gives ROS a clean SIGINT and RTAB-Map saves.
+  `SCANNER_FAKE_CAMERA=1` swaps the openni2 driver for `tests/fake_camera.py`.
+- **scanner_core.py** — GUI-free core imported by the GUI and the tools: paths,
+  `detect_xtions()` (sysfs), Docker helpers, `run_doctor()`, `read_telemetry()`
+  (read-only `immutable=1` SQLite so RTAB-Map is never blocked),
+  `read_live_status()`, and `cmd_*()` builders returning `Command(argv, title,
+  long_running, needs_camera, env)`. Unit tests: `tests/test_core.py`.
+- **scanner_gui.py** — PySide6 window. `Runner` wraps ONE `QProcess` (merged
+  channels, streamed lines, no timeout; `stop()` = SIGTERM, kill after 25 s).
+  `TelemetryThread` polls the DB + USB every 1.5 s; a 150 ms timer refreshes the
+  preview panes from `.live/`. Tabs: Scan, Export & Clean, Multi-Camera, Setup
+  (doctor table, simulated-camera switch), Log. `--smoke [--screenshot DIR]` builds
+  it offscreen for tests.
+- **live_preview_node.py** (container) — subscribes to `/<ns>/rgb/image_raw`,
+  `/<ns>/depth_registered/image_raw` (or `/<ns>/depth/image`), matching the
+  publisher's reliability (best-effort drops large frames), writes
+  `<ns>_rgb.jpg`, `<ns>_depth.jpg`, `status.json` atomically. `--summary` prints a
+  RESULT line from a status file (used by `camera`).
+- **tests/fake_camera.py** (container) — synthetic RGB-D publisher + static TF,
+  QVGA by default (VGA frames exceed what FastDDS moves without fragmentation
+  loss; RTAB-Map then reports "Did not receive data").
+- **capture_cloud_ros.py** (container) — one depth frame → PLY, deprojecting
+  with the pinhole model itself (does not depend on depth_image_proc).
+- **point_cloud_tools.py** — `ISOLATION_PROFILES` and the CLI (`--strategy`,
+  `--voxel`, `--mesh-output`). `scanner_core.ISOLATION_STRATEGIES` must match its
+  keys (a test checks).
+- **Multi-camera**: `multi_camera.launch.py` + `cameras.json` (roster pinned by USB
+  port path, any `1d27:*` product), `calibrate_multi.py` / `overlap_check.py` /
+  `fuse_check.py` (FPFH+RANSAC→ICP, chained pairs), `station_scan.py` +
+  `capture_station.py` (sweeps + pose-graph fusion). See `CALIBRATION_GUIDE.md`
+  and `MATTERPORT_REPLICATION_PLAN.md`.
+- **legacy/** — `run_prebuilt_stack.sh` (host-ROS launcher, hard-coded old paths)
+  and `ai_scanner_agent.py` (LLM agent for the deleted Tkinter app; not wired to
+  anything). Keep out of the main app unless re-integrated deliberately.
 
-- **scanner_gui.py** — Primary PySide6-based control panel (Docker-native, no host ROS required). Six operational tabs:
-  - *Camera Preview* — test camera stream, capture single frames
-  - *Mapping* — quick SLAM scan or full hands-off GUI (auto-mapping + rtabmap_viz)
-  - *Export* — save PLY files, view in 3D, apply post-processing
-  - *Multi-Camera* — live view and markerless auto-calibration (if multiple Xtions mounted)
-  - *Settings* — adjust voxel size, depth quality, max depth; clear DB, rebuild Docker
-  - *Log* — command output and diagnostics
-  - Real-time telemetry bar (status, nodes, DB size) refreshes every 2 seconds from RTAB-Map DB.
+## Commands
 
-- **ai_scanner_agent.py** — Background thread that reads scanner state every tick, sends it to Claude/GPT-4 with embedded skill knowledge about how the scanner works, streams the response to the UI, and parses/dispatches commands (CAPTURE, START_AUTO, BUILD_MESH, EXPORT_LIVE, ISOLATE_LATEST, SET_ISOLATION, etc.) back through a ScannerBridge.
-
-- **point_cloud_tools.py** — Post-processing pipeline offering five isolation strategies (raw_clean, largest_cluster, tabletop_object, center_focus, aggressive_hybrid) and an all_variants mode. Uses Open3D for voxel downsampling, plane removal, statistical/radius outlier filtering, and cluster extraction. Saves multiple variants for side-by-side comparison.
-
-- **view_cloud.py** — Lightweight PLY viewer. Downsamples large point clouds to ~1–2M points for smooth rendering and estimates surface normals.
-
-- **station_scan.py** + **capture_station.py** — **Matterport-style station/sweep scanning** (Stage 1 of `MATTERPORT_REPLICATION_PLAN.md`, derived from reverse-engineering the Matterport app). Instead of continuous handheld SLAM, capture discrete 360°-ish "sweeps" from fixed tripod positions: each `capture` stacks N depth frames per camera (temporal denoise), fuses the multi-Xtion clouds into one sweep via `output/camera_extrinsics.json`, then `build` globally registers all sweeps (FPFH+RANSAC→ICP, same as `calibrate_multi.py`) with an Open3D pose-graph optimization → `output/room.ply`. Run via `./run_scanner_docker.sh station capture|build|list`. `station_scan.py` runs host-side in `.venv` and spins up the camera container itself per sweep.
-
-- **run_prebuilt_stack.sh** — Bash launcher for ROS/RTAB-Map modes (camera node, full stack, RViz, export utilities, auto-restart watchers).
-
-- **run_scanner_docker.sh** — Primary entry point: builds/runs the `scanner-ros:jazzy` image and exposes all scan modes (camera, snap, map, gui, multi, station, calibrate, export).
-
-### State & Config
-
-- **calibration.json** — Camera calibration (if needed).
-- **rtabmap.db** — RTAB-Map pose graph and point cloud data (created at runtime).
-
-## Common Commands
-
-### Start the Scanner GUI (PySide6 control panel — recommended)
-
-```bash
-./launch_gui.sh
+```
+./setup.sh                                   # venv + image
+./run_scanner_docker.sh doctor               # checklist
+./launch_gui.sh                              # GUI
+./launch_gui.sh --smoke --screenshot /tmp/s  # offscreen GUI test
+./.venv/bin/python -m unittest discover -s tests -v
+tests/test_preview_docker.sh                 # fake camera → preview node (Docker)
+SCANNER_FAKE_CAMERA=1 ./run_scanner_docker.sh camera 8     # launcher end to end
+SCANNER_FAKE_CAMERA=1 timeout -s TERM 80 ./run_scanner_docker.sh map   # simulated SLAM
+./run_scanner_docker.sh export rtabmap.db output/scan.ply 4.0 0.012
 ```
 
-Opens the modern control panel with six operational tabs, real-time telemetry, and easy access to all scanner modes (camera preview, mapping, export, multi-camera, settings, log). All commands run in Docker; no host ROS needed. See **SCANNER_GUI_GUIDE.md** for detailed feature walkthrough.
+Two simulated cameras must not run at once (`--network host`, one DDS domain).
 
-### Start ROS/RTAB-Map Stack Manually
+## Conventions
 
-```bash
-./run_prebuilt_stack.sh ros_all
-```
+- Add a GUI action by adding a `cmd_*` builder in `scanner_core.py` (argv list,
+  `needs_camera`, `long_running`) and a launcher mode; the GUI only calls `_run()`.
+- Container scripts: start everything in the background, `wait`, and let
+  `graceful` handle SIGTERM. Never `sleep N` for a camera — use `wait_topic`.
+- Paths handed to the container go through `to_container_path` (host
+  `$HERE/...` ↔ `/scanner/...`).
+- Keep `RTAB_TUNE` (Xtion-specific RTAB-Map params) in the launcher; override per
+  run with the env var rather than editing.
+- Isolation tuning: edit `ISOLATION_PROFILES` / the `_profile` functions in
+  `point_cloud_tools.py` (voxel, statistical/radius outlier, plane removal,
+  DBSCAN cluster size).
 
-Launches OpenNI2 camera node + RTAB-Map in the background. Logs go to `ros_logs/`. Check status with:
+## Verified state (2026-10-14, no Xtion plugged in)
 
-```bash
-./run_prebuilt_stack.sh ros_status
-```
-
-### Stop the Stack
-
-```bash
-./run_prebuilt_stack.sh ros_stop
-```
-
-### Export a Point Cloud
-
-```bash
-./run_prebuilt_stack.sh ros_export_cloud rtabmap.db output/scan.ply
-```
-
-Exports the RTAB-Map database to a .ply file. Omit arguments to use defaults (rtabmap.db → output/).
-
-### View a Point Cloud
-
-```bash
-python3 view_cloud.py output/scan.ply
-```
-
-Opens an interactive viewer. Drag to rotate, scroll to zoom, Q to quit.
-
-### Run an Automated Scan with AI Agent
-
-```bash
-./run_prebuilt_stack.sh ros_agent_scan 60 output/ai_scan.ply
-```
-
-Starts the ROS stack, runs the AI agent for N seconds, then exports a cloud. The agent will issue commands to guide the scan.
-
-### Watch ROS/RTAB-Map with Auto-Restart
-
-```bash
-./run_prebuilt_stack.sh ros_watch 5
-```
-
-Keeps the mapping stack alive, restarting if processes die. Useful for long unattended scans.
-
-## Development Workflow
-
-### Adding AI Commands
-
-The agent can issue these commands (one per line, verb first):
-
-- **CAPTURE** — Take a single frame (surface mode)
-- **START_AUTO / STOP_AUTO** — Toggle continuous auto-capture
-- **BUILD_MESH** — Run full ICP + Poisson reconstruction
-- **EXPORT_LIVE** — Save the current TSDF mesh
-- **ISOLATE_LATEST** — Re-run isolation on the latest export
-- **OPEN_LATEST** — Preview the latest saved cloud
-- **OPEN_BLENDER** — Send last export to Blender
-- **SET_ISOLATION:x** — Change isolation strategy (x = raw_clean, largest_cluster, etc.)
-- **SET_DEPTH_WINDOW:min:max** — Adjust near/far depth gates (mm)
-- **SET_AUTO_EXPORT:on|off** — Toggle auto-export on scan stop
-- **SET_MODE:<mode>** — Switch scan mode (handheld, turntable, surface)
-- **CLEAR_SESSION** — Discard frames and restart
-- **SAY:<text>** — Post a status message
-- **WAIT** — Do nothing this tick
-
-To add a command, modify the response parser in `ai_scanner_agent.py` and update the skill prompt with decision rules.
-
-### Tuning Point Cloud Isolation
-
-Edit `ISOLATION_PROFILES` in `point_cloud_tools.py` to add or modify isolation strategies. Each profile is a function that takes a point cloud and returns a cleaned variant. Key tuning parameters:
-
-- **voxel_size** — Downsampling grid size (meters). Smaller = more detail, slower.
-- **statistical_outlier** — Remove noisy points far from neighbors.
-- **radius_outlier** — Remove sparse clusters.
-- **plane_removal** — Strip dominant planes (good for tabletop scenes).
-- **cluster_size** — Keep only the largest cluster, or filter by size.
-
-### Integration with Claude/GPT-4
-
-The agent reads `SCANNER_SKILL` at startup — a prompt that describes scanner modes, telemetry interpretation (depth quality, motion tracking, vertex/frame counts), and decision rules (when to START_AUTO, when to BUILD_MESH, etc.). Update this skill to teach the agent new heuristics without changing code.
-
-### LLM provider selection (incl. no-key mode)
-
-`AIAgentController` (in `ai_scanner_agent.py`) picks a provider via `_resolve_provider`:
-
-- **`claude_cli` (no API key needed)** — routes each tick through the local
-  **Claude Code CLI** (`claude -p`), using your existing Claude Code auth instead
-  of a raw key. This is the **automatic fallback** when neither `ANTHROPIC_API_KEY`
-  nor `OPENAI_API_KEY` is set and a `claude` binary is found (searches `PATH`,
-  then `~/.local/bin/claude`, `/usr/local/bin/claude`). Force it explicitly with
-  `provider="claude_cli"`.
-  - Model alias is `haiku` by default (cheap/fast for the ~4 s loop); override with
-    the `SCANNER_CLAUDE_CLI_MODEL` env var (e.g. `sonnet`).
-  - The skill prompt is passed via `--append-system-prompt`; the rolling
-    conversation is piped on stdin. Calls are bounded by a 90 s timeout — on
-    timeout or non-zero exit the tick degrades to `WAIT` and reports via `on_error`.
-  - Unlike the SDK paths, the CLI returns the full answer at once (no token
-    streaming), so the GUI thought panel updates once per tick rather than live.
-- **`anthropic` / `openai`** — used when the corresponding key is present (or set
-  explicitly). Unchanged from before.
-
-## Feature Roadmap
-
-From `agency_feature_plan.md`:
-
-1. **Export Quality Lane** — Post-export cleanup, tabletop segmentation, center-focus cropping, aggressive hybrid cleanup.
-2. **Live Guidance Lane** — Convert odometry and loop-closure telemetry into immediate scan advice inside the UI.
-3. **AI Control Lane** — Let the agent change export/isolation settings and trigger follow-up actions (implemented).
-4. **Operator Workflow Lane** — Keep latest raw and recommended isolated cloud easy to preview and reprocess (implemented).
-
-Planned additions: mesh reconstruction, export-side mesh decimation presets, auto-scoring isolated variants, guided scan checklist with coverage progress.
+With the simulated camera, end to end: unit tests (17), `tests/test_preview_docker.sh`
+(10/10 fps), `camera 8`, `snap` (301k points), `map` for 80 s (142 nodes, 54 loop
+closures, clean SIGTERM stop, 0 containers left), `export` (95k points),
+`point_cloud_tools.py --mesh-output` (218k-triangle STL), GUI `--smoke`, and the
+GUI on the real display via `--script` (preview → stop → scan → stop). The
+real-Xtion ROS command lines (`openni2_camera camera_with_cloud.launch.py`,
+`rtabmap.launch.py` arguments, `RTAB_TUNE`) are the ones that streamed in
+2026-06, kept verbatim apart from moving `Odom/*` into `odom_args`; they were
+not re-tested with hardware in this revamp. First check with a camera:
+`./run_scanner_docker.sh camera 20`, then a short `map`.
 
 ## Troubleshooting
 
-### ROS Stack Won't Start
-
-Check that OpenNI2 is installed and the camera is connected. View raw depth with:
-
-```bash
-./run_prebuilt_stack.sh niviewer
-```
-
-If niviewer freezes or shows no frames, the camera is not detected.
-
-### Agent Sends No Commands
-
-No API key is required if the **Claude Code CLI** is installed — the agent falls
-back to `claude -p` automatically (see "LLM provider selection" above). If you
-*do* want the SDK path, set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. If the agent
-is silent, check: the `claude` binary is on `PATH` (or `~/.local/bin/claude`) and
-`claude -p "hi"` works; otherwise look at the GUI log window for parse/timeout errors.
-
-### Point Cloud Is Noisy or Sparse
-
-- Low depth quality (<0.3) suggests the sensor is warming up, the object is too far, or lighting is poor.
-- Increase frames captured before running BUILD_MESH (aim for 20+ in handheld mode).
-- Try a tighter isolation profile (center_focus, aggressive_hybrid).
-
-### Segmentation Fault During Export
-
-This typically means RTAB-Map or the pose graph is corrupted. Clear the database and restart:
-
-```bash
-rm rtabmap.db
-./run_prebuilt_stack.sh ros_stop
-./run_prebuilt_stack.sh ros_all
-```
+- No camera: `lsusb | grep 1d27`; the launcher's exit code 3 means none found.
+- Stuck camera: `./run_scanner_docker.sh stop`.
+- Empty export (exit 4): `rtabmap.db` has 0 nodes — the scan never tracked.
+- Window modes need `DISPLAY` and `xhost`; the launcher prefers the NVIDIA GPU,
+  then `/dev/dri`, then software GL.
+- DB corruption / segfault on export: delete `rtabmap.db` (Setup → *Clear the map
+  database*) and rescan.

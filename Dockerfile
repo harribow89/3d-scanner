@@ -1,5 +1,6 @@
-# ROS 2 Jazzy + RTAB-Map + OpenNI2 (Asus Xtion) for the 3D scanner.
-# Built on Kali via Docker because Kali is not a supported ROS apt target.
+# ROS 2 Jazzy + RTAB-Map + OpenNI2 (ASUS Xtion) for the 3D scanner.
+# Everything ROS lives in this image so the host (Ubuntu, Kali, anything with
+# Docker) needs no ROS install. Build: ./run_scanner_docker.sh build
 FROM ros:jazzy-ros-base
 
 ENV DEBIAN_FRONTEND=noninteractive
