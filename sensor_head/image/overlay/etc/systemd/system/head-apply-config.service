@@ -1,0 +1,14 @@
+[Unit]
+Description=Apply /boot/head-config.txt (hostname, Wi-Fi, camera args)
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target xtion-head.service avahi-daemon.service
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/head-apply-config
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

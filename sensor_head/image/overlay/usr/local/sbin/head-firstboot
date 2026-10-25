@@ -1,0 +1,13 @@
+#!/bin/sh
+# First boot of a freshly written card: grow the root partition to fill the
+# card, create this board's own SSH host keys, then disable itself.
+set -u
+ROOTDEV=$(findmnt -no SOURCE /)
+DISK=/dev/$(lsblk -no PKNAME "$ROOTDEV")
+PART=$(cat "/sys/class/block/$(basename "$ROOTDEV")/partition" 2>/dev/null)
+if [ -b "$DISK" ] && [ -n "$PART" ]; then
+  growpart "$DISK" "$PART" && resize2fs "$ROOTDEV"
+fi
+ssh-keygen -A
+systemctl disable head-firstboot.service
+exit 0

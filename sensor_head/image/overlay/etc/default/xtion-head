@@ -1,0 +1,9 @@
+# Arguments for /opt/xtion-head/xtion_head.py (see `python3 xtion_head.py -h`).
+#
+# The i.MX6 has ONE USB-2 host link shared by every port on the board, so the
+# defaults are QVGA depth + colour at 15 fps per stream (the cameras still run
+# at 30 internally). Depth only halves the USB load:   --no-color
+# Camera order / names: /etc/xtion-head.json (same format as the PC's
+# cameras.json: {"cameras":[{"ns":"camera1","port":"1-1.2"}, ...]}).
+# Overrides from /boot/head-config.txt (HEAD_ARGS=...) win over this file.
+HEAD_ARGS="--fps 15 --width 320 --height 240 --expect 3 --settle 30"

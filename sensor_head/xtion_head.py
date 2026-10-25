@@ -77,7 +77,7 @@ def _read(path):
 
 def port_key(port):
     """Natural sort for USB port paths: 1-7 < 1-9 < 1-10 < 1-10.2."""
-    return [int(x) if x.isdigit() else x for x in port.replace("-", ".").split(".")]
+    return [(0, int(x), "") if x.isdigit() else (1, 0, x) for x in port.replace("-", ".").split(".")]
 
 
 def xtion_ports():

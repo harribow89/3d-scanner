@@ -182,6 +182,13 @@ class XtionDetectionTests(unittest.TestCase):
                     (d / "driver").mkdir()
             self.assertEqual(core.xtion_audio_bound(root), ["1-7:1.1"])
 
+    def test_ports_sort_naturally(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for port, dev in (("1-10", 56), ("1-7", 54), ("1-9", 55)):
+                self.make_dev(root, port, "1d27", "0601", 1, dev)
+            self.assertEqual([c.port for c in core.detect_xtions(root)], ["1-7", "1-9", "1-10"])
+
     def test_missing_sysfs_is_empty(self):
         self.assertEqual(core.detect_xtions(Path("/nonexistent/sysfs")), [])
         self.assertEqual(core.camera_summary([]), "No Xtion detected")

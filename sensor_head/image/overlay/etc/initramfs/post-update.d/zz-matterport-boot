@@ -1,0 +1,3 @@
+#!/bin/sh
+# initramfs-tools rebuilt an initrd ($1 = version): refresh /boot/uInitrd.
+exec /etc/kernel/postinst.d/zz-matterport-boot "$1"

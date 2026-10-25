@@ -1,0 +1,15 @@
+# Matterport sensor head — settings read at every boot.
+# Edit this file on the SD card from any Linux PC (it is the first, small
+# partition), or on the board as /boot/head-config.txt, then reboot.
+
+# Network name. The board answers as <HOSTNAME>.local (mDNS).
+HOSTNAME=matterport-head
+
+# Wi-Fi (leave WIFI_SSID empty for wired Ethernet / USB cable only).
+WIFI_SSID=
+WIFI_PSK=
+WIFI_COUNTRY=AU
+
+# Extra arguments for the camera service (empty = /etc/default/xtion-head).
+# e.g.  HEAD_ARGS=--fps 10 --no-color
+HEAD_ARGS=

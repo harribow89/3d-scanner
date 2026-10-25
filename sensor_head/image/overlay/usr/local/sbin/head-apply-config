@@ -1,0 +1,45 @@
+#!/bin/sh
+# Apply /boot/head-config.txt at boot: hostname, Wi-Fi, camera service args.
+set -u
+CFG=/boot/head-config.txt
+[ -r "$CFG" ] || exit 0
+
+val() {  # val KEY -> value (text after the first '=', CR stripped)
+  sed -n "s/^[[:space:]]*$1[[:space:]]*=//p" "$CFG" | tail -n 1 | tr -d '\r'
+}
+
+HN=$(val HOSTNAME | tr -cd 'A-Za-z0-9-')
+if [ -n "$HN" ] && [ "$HN" != "$(cat /etc/hostname 2>/dev/null)" ]; then
+  echo "$HN" > /etc/hostname
+  hostname "$HN"
+  sed -i "s/^127\.0\.1\.1.*/127.0.1.1\t$HN/" /etc/hosts
+fi
+
+SSID=$(val WIFI_SSID)
+PSK=$(val WIFI_PSK)
+COUNTRY=$(val WIFI_COUNTRY)
+W=/etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+if [ -n "$SSID" ]; then
+  umask 077
+  {
+    echo "ctrl_interface=DIR=/run/wpa_supplicant GROUP=netdev"
+    echo "update_config=0"
+    [ -n "$COUNTRY" ] && echo "country=$COUNTRY"
+    echo "network={"
+    printf '  ssid="%s"\n' "$SSID"
+    if [ -n "$PSK" ]; then printf '  psk="%s"\n' "$PSK"; else echo "  key_mgmt=NONE"; fi
+    echo "}"
+  } > "$W"
+  systemctl enable --now wpa_supplicant@wlan0.service >/dev/null 2>&1 || true
+else
+  rm -f "$W"
+  systemctl disable --now wpa_supplicant@wlan0.service >/dev/null 2>&1 || true
+fi
+
+ARGS=$(val HEAD_ARGS)
+if [ -n "$ARGS" ]; then
+  printf 'HEAD_ARGS="%s"\n' "$ARGS" > /run/xtion-head.env
+else
+  rm -f /run/xtion-head.env
+fi
+exit 0

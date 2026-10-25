@@ -1,0 +1,21 @@
+[Unit]
+Description=Xtion / PrimeSense network sensor head (tcp/5599)
+Documentation=file:///opt/xtion-head/README.txt
+After=network.target systemd-udev-settle.service head-apply-config.service
+Wants=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/xtion-head
+# HEAD_ARGS from /boot/head-config.txt, written by head-apply-config.service
+EnvironmentFile=-/run/xtion-head.env
+# root: detaches the cameras' USB-audio interfaces and gets USB thread priority
+ExecStart=/usr/bin/python3 -u /opt/xtion-head/xtion_head.py $HEAD_ARGS
+Restart=always
+RestartSec=3
+Nice=-5
+# keep the cameras powered: never autosuspend PrimeSense devices
+ExecStartPre=-/bin/sh -c 'for d in /sys/bus/usb/devices/*; do [ "$(cat $d/idVendor 2>/dev/null)" = 1d27 ] && echo on > $d/power/control; done; true'
+
+[Install]
+WantedBy=multi-user.target
