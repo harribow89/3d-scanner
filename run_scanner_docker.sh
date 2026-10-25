@@ -74,7 +74,9 @@ MAP_FRESH="${MAP_FRESH:-1}"
 # SLAM node ABORTS at startup (exit -6) while odometry keeps running. That was why
 # every map/gui run since 2026-06 produced an empty rtabmap.db. Keep Odom/* here:
 ODOM_TUNE="${ODOM_TUNE:---Vis/MaxDepth 3.5 --Vis/MinInliers 15 --Odom/ResetCountdown 5}"
-RTAB_TUNE="${RTAB_TUNE:---Vis/MaxDepth 3.5 --Vis/MinInliers 15 --RGBD/LinearUpdate 0.05 --RGBD/AngularUpdate 0.05 --Rtabmap/DetectionRate 2 --RGBD/NeighborLinkRefining true}"
+RTAB_TUNE="${RTAB_TUNE:---Vis/MaxDepth 3.5 --Vis/MinInliers 15 --RGBD/LinearUpdate 0.05 --RGBD/AngularUpdate 0.05 --Rtabmap/DetectionRate 2 --RGBD/NeighborLinkRefining true --Mem/SaveDepth16Format true}"
+# The GUI's Room / Object modes pass their own RTAB_TUNE / ODOM_TUNE
+# (scanner_core.SCAN_MODES); these defaults are the Room values.
 
 # Flags shared by every container. --init gives us a real PID 1 that forwards
 # SIGTERM to our bash script so it can shut ROS down cleanly (RTAB-Map saves).
@@ -146,12 +148,36 @@ xtion_count() {
   echo "$n"
 }
 
+detach_xtion_audio() {
+  # The Xtion PRO LIVE has two USB microphones (interface class 01). When the
+  # host's snd-usb-audio + PipeWire probe them (set sample rate on ep 0x84) the
+  # sensor firmware hits a USB protocol error, drops off the bus and does not
+  # come back until it is re-plugged (seen 2026-10-26, kernel 7.0). Detaching
+  # the audio interfaces before streaming avoids that. Runtime only, best
+  # effort; udev/56-xtion-no-audio.rules makes it permanent if installed.
+  local i dev
+  for i in /sys/bus/usb/devices/*:*; do
+    [ -f "$i/bInterfaceClass" ] || continue
+    [ "$(cat "$i/bInterfaceClass" 2>/dev/null)" = "01" ] || continue
+    dev="/sys/bus/usb/devices/$(basename "${i%%:*}")"
+    [ "$(cat "$dev/idVendor" 2>/dev/null)" = "1d27" ] || continue
+    [ "$(cat "$i/authorized" 2>/dev/null)" = "1" ] || continue
+    if echo 0 | sudo -n tee "$i/authorized" >/dev/null 2>&1; then
+      echo ">> detached the USB-audio driver from the Xtion microphone ($(basename "$i"))"
+    else
+      echo "WARN: could not detach the Xtion microphone driver ($(basename "$i")). If the camera drops off USB, install udev/56-xtion-no-audio.rules" >&2
+    fi
+  done
+  return 0
+}
+
 require_camera() {   # require_camera <min cameras>
   local need=${1:-1} n
   if [ "$FAKE" = "1" ]; then
     echo ">> SIMULATED camera (SCANNER_FAKE_CAMERA=1) — no hardware used"
     return 0
   fi
+  detach_xtion_audio
   n=$(xtion_count)
   if [ "$n" -lt "$need" ]; then
     echo "ERROR: this mode needs $need depth camera(s); $n PrimeSense/Xtion device(s) found on USB." >&2
@@ -204,7 +230,12 @@ CAM_PID=""; MAIN_PID=""; EXTRA_PIDS=""
 graceful() {
   trap - TERM INT
   echo ">> shutting down cleanly …"
-  for p in $MAIN_PID $EXTRA_PIDS $CAM_PID; do kill -INT "$p" 2>/dev/null || true; done
+  # SIGTERM, not SIGINT: bash starts the background jobs of a non-interactive
+  # shell with SIGINT IGNORED (verified 2026-10-26: SigIgn bit 2 set on
+  # ros2 launch). kill -INT did nothing, every Stop ended in docker SIGKILL and
+  # RTAB-Map never closed its database. ros2 launch turns SIGTERM into a clean
+  # shutdown (it SIGINTs its own nodes); rclpy nodes handle SIGTERM too.
+  for p in $MAIN_PID $EXTRA_PIDS $CAM_PID; do kill -TERM "$p" 2>/dev/null || true; done
   wait 2>/dev/null || true
   exit 0
 }
@@ -285,7 +316,7 @@ case "$cmd" in
       run_main python3 /scanner/live_preview_node.py --ns camera --out /scanner/.live --hz 4 --seconds "$SECS"
       python3 /scanner/live_preview_node.py --summary /scanner/.live/status.json
       rc=$?
-      kill -INT "$CAM_PID" 2>/dev/null; wait 2>/dev/null
+      kill -TERM "$CAM_PID" 2>/dev/null; wait 2>/dev/null
       exit $rc'
     ;;
 
@@ -335,7 +366,7 @@ case "$cmd" in
       python3 /scanner/live_preview_node.py --ns camera --out /scanner/.live --hz 8 > /scanner/ros_logs/preview.log 2>&1 &
       MAIN_PID=$!
       while kill -0 "$MAIN_PID" 2>/dev/null; do
-        sleep 10
+        sleep 10 & wait $!   # wait (not a foreground sleep) lets the TERM trap fire at once
         kill -0 "$EXTRA_PIDS" 2>/dev/null || { echo "ERROR: RTAB-Map exited — see ros_logs/rtabmap.log" >&2; tail -n 20 /scanner/ros_logs/rtabmap.log >&2; exit 2; }
         echo "   map: $(db_nodes) nodes"
       done'

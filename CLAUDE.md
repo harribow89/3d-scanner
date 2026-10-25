@@ -98,6 +98,37 @@ real-Xtion ROS command lines (`openni2_camera camera_with_cloud.launch.py`,
 not re-tested with hardware in this revamp. First check with a camera:
 `./run_scanner_docker.sh camera 20`, then a short `map`.
 
+## Unified workflow (2026-10-26)
+
+One window, one path: Scan tab → pick **Room / space** or **Object** (sets the
+RTAB-Map tuning via `scanner_core.SCAN_MODES` → `RTAB_TUNE`/`ODOM_TUNE` env, and
+the export preset) → live preview → Start scan (F6) → **Finish (F9)** = stop →
+export → isolate (`raw_clean` for rooms, `tabletop_object` for objects) → STL →
+viewer. Multi-camera / station tools live in the "Multi-Camera (advanced)" tab;
+`cameras.json` still pins ports 1-3/1-5/1-8 from the old 3-camera rig.
+The simulated-camera switch is NOT persisted (a saved "on" once hid the real Xtion).
+
+## Verified on the real Xtion (2026-10-26, one Xtion PRO LIVE on USB port 1-7)
+
+`camera` 30 fps RGB + depth, 640x480, registered depth arrives as **32FC1 with
+NaN holes**; `snap` 123k points; `map` 82 nodes in 45 s, Stop clean in 8 s;
+GUI-driven Room scan reached 377 nodes / 46 loop closures; Finish → 49 MB cloud,
+cleaned cloud, STL; Object export + tabletop isolation + STL. Real handheld scan
+quality (moving the camera around a room/object) is up to the operator.
+
+Two hardware-only bugs found that day:
+1. **The Xtion's USB microphones knock it off the bus.** snd-usb-audio + PipeWire
+   probe them, the firmware errors (-71) and the device disappears until
+   re-plugged. The launcher's `detach_xtion_audio` de-authorizes the class-01
+   interfaces before every camera mode; `udev/56-xtion-no-audio.rules` makes it
+   permanent (user installs it: `sudo cp udev/56-xtion-no-audio.rules
+   /etc/udev/rules.d/ && sudo udevadm control --reload-rules`).
+2. **Stop never reached ROS.** Background jobs of a non-interactive bash start
+   with SIGINT ignored (SigIgn bit 2 on `ros2 launch`), so every `kill -INT`
+   was a no-op and docker SIGKILLed after 12 s. `graceful` now sends SIGTERM.
+   (The fake camera hid this.) The map loop uses `sleep & wait` so the trap fires
+   at once.
+
 ## Troubleshooting
 
 - No camera: `lsusb | grep 1d27`; the launcher's exit code 3 means none found.
