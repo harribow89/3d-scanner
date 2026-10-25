@@ -1,0 +1,13 @@
+[Unit]
+Description=First boot: grow root filesystem, create SSH host keys
+After=local-fs.target
+Before=ssh.service
+ConditionPathExists=!/etc/ssh/ssh_host_ed25519_key
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/head-firstboot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

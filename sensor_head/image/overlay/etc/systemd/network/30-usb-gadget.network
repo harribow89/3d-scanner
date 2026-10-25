@@ -1,0 +1,16 @@
+# USB cable network (OTG port in device mode): the board is 192.168.7.2 and
+# hands the PC an address from the same /24, so `ssh scanner@192.168.7.2` and
+# SCANNER_HEAD=192.168.7.2 work with no router.
+[Match]
+Name=usb*
+
+[Network]
+Address=192.168.7.2/24
+DHCPServer=yes
+MulticastDNS=yes
+
+[DHCPServer]
+PoolOffset=10
+PoolSize=20
+EmitDNS=no
+EmitRouter=no

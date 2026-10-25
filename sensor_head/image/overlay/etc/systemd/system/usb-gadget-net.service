@@ -1,0 +1,12 @@
+[Unit]
+Description=USB cable network on the OTG port (board = 192.168.7.2)
+After=systemd-modules-load.service
+ConditionPathExistsGlob=/sys/class/udc/*
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/modprobe g_ether host_addr=02:00:00:00:07:01 dev_addr=02:00:00:00:07:02
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -671,7 +671,44 @@ class ScannerWindow(QMainWindow):
         intro.setWordWrap(True)
         lay.addWidget(intro)
 
-        g = QGroupBox("Calibration (do this once, in order)")
+        g = QGroupBox("Sensor head (all cameras streamed by one service)")
+        v = QVBoxLayout(g)
+        lab = QLabel("The cameras are run by a sensor head: the Matterport i.MX6 board, or this "
+                     "PC. Every multi-camera button below then uses it. Leave the address empty "
+                     "to drive USB cameras directly the old way.")
+        lab.setObjectName("hint")
+        lab.setWordWrap(True)
+        v.addWidget(lab)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Head address:"))
+        self.head_edit = QLineEdit()
+        self.head_edit.setPlaceholderText("e.g. 127.0.0.1 (this PC) or matterport-head.local")
+        row.addWidget(self.head_edit, 1)
+        self.head_local_btn = QPushButton("▶ Run head on this PC")
+        self.head_local_btn.setToolTip("Streams every Xtion plugged into this PC and sets the "
+                                       "address to 127.0.0.1. Runs in the background.")
+        self.head_local_btn.clicked.connect(self._toggle_local_head)
+        row.addWidget(self.head_local_btn)
+        v.addLayout(row)
+        row = QHBoxLayout()
+        b = QPushButton("Check head (10 s)")
+        b.setToolTip("Frame rate per camera and stream, and the head's own status")
+        b.clicked.connect(lambda: self._with_head(core.cmd_head_probe))
+        row.addWidget(b)
+        b = primary(QPushButton("Calibrate cameras (feature matching)"))
+        b.setToolTip("Matches what neighbouring cameras both see in colour, lifts it to 3-D and "
+                     "solves each camera's pose. Keep the rig still for ~5 s. Writes "
+                     "output/camera_extrinsics.json only when every camera is linked.")
+        b.clicked.connect(lambda: self._with_head(core.cmd_calibrate_head))
+        row.addWidget(b)
+        self.head_status = QLabel("")
+        self.head_status.setObjectName("hint")
+        row.addWidget(self.head_status, 1)
+        v.addLayout(row)
+        lay.addWidget(g)
+        self.head_proc: QProcess | None = None
+
+        g = QGroupBox("Calibration without a head (USB cameras, shape matching)")
         v = QVBoxLayout(g)
         lab = QLabel("Aim all cameras at a STRUCTURED scene 1–1.5 m away so adjacent "
                      "cameras overlap 30–50 %. Cameras are captured one at a time. "
@@ -843,6 +880,7 @@ class ScannerWindow(QMainWindow):
         if geo:
             self.restoreGeometry(geo)
         self._set_mode(s.value("scan_mode", core.DEFAULT_SCAN_MODE, type=str))
+        self.head_edit.setText(s.value("head", "", type=str) or "")
 
     def _save_settings(self):
         s = self.settings
@@ -854,10 +892,60 @@ class ScannerWindow(QMainWindow):
         s.setValue("strategy", self.strategy_combo.currentText())
         s.setValue("geometry", self.saveGeometry())
         s.setValue("scan_mode", self.scan_mode)
+        # a local head (127.0.0.1) only exists while this window runs it
+        head = self.head_edit.text().strip()
+        s.setValue("head", "" if head.startswith("127.") else head)
 
     # ---------------------------------------------------------------- running
     def _extra_env(self) -> dict:
-        return {core.FAKE_CAMERA_ENV: "1" if self.fake_cb.isChecked() else "0"}
+        env = {core.FAKE_CAMERA_ENV: "1" if self.fake_cb.isChecked() else "0"}
+        head = self.head_edit.text().strip() if hasattr(self, "head_edit") else ""
+        if head:
+            env[core.HEAD_ENV] = head
+        return env
+
+    # ------------------------------------------------------------ sensor head
+    def _with_head(self, builder):
+        head = self.head_edit.text().strip()
+        if not head:
+            QMessageBox.information(self, "Sensor head",
+                                    "Enter the head's address first, or press "
+                                    "“Run head on this PC”.")
+            return
+        self._run(builder(head))
+
+    def _toggle_local_head(self):
+        if self.head_proc and self.head_proc.state() != QProcess.ProcessState.NotRunning:
+            self.head_proc.terminate()
+            if not self.head_proc.waitForFinished(8000):
+                self.head_proc.kill()
+            return
+        if self.runner.busy() and self.runner.cmd and self.runner.cmd.needs_camera:
+            QMessageBox.warning(self, "Busy", "Stop the running camera command first — "
+                                "the head needs the cameras to itself.")
+            return
+        argv = core.head_local_argv()
+        p = QProcess(self)
+        p.setProgram(argv[0])
+        p.setArguments(argv[1:])
+        p.setWorkingDirectory(str(core.HERE))
+        p.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        p.readyReadStandardOutput.connect(
+            lambda: [self._log("[head] " + ln) for ln in
+                     bytes(p.readAllStandardOutput().data()).decode("utf-8", "replace").splitlines()
+                     if ln.strip()])
+        p.finished.connect(self._on_local_head_finished)
+        self.head_proc = p
+        p.start()
+        self.head_edit.setText("127.0.0.1")
+        self.head_local_btn.setText("■ Stop head on this PC")
+        self.head_status.setText("head running on this PC")
+        self._log("[head] started: " + " ".join(argv))
+
+    def _on_local_head_finished(self, code, _status):
+        self.head_local_btn.setText("▶ Run head on this PC")
+        self.head_status.setText(f"head on this PC stopped (exit {code})")
+        self._log(f"[head] stopped (exit {code})")
 
     def _run(self, cmd: core.Command) -> bool:
         if self.runner.busy():
@@ -1382,6 +1470,10 @@ class ScannerWindow(QMainWindow):
 
     def closeEvent(self, e):
         self._save_settings()
+        if self.head_proc and self.head_proc.state() != QProcess.ProcessState.NotRunning:
+            self.head_proc.terminate()
+            if not self.head_proc.waitForFinished(8000):
+                self.head_proc.kill()
         self.poller.stop()
         self.activity.stop()
         if self.runner.busy():

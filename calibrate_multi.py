@@ -74,15 +74,16 @@ def capture_all(cams, frames=10):
             f'sleep $((12 + t*4)) ; '
             f'if ros2 topic list 2>/dev/null | grep -q "{ns}/depth_registered/points" ; then '
             f'python3 /scanner/capture_station.py {frames} {out} {topic} ; '
-            f'kill -INT $LP 2>/dev/null ; pkill -INT -f multi_camera 2>/dev/null ; sleep 4 ; break ; '
+            f'kill -TERM $LP 2>/dev/null ; pkill -TERM -f multi_camera.launch 2>/dev/null ; sleep 4 ; break ; '
             f'else echo "[calib] {ns}: topic not up (try $t), retrying" ; '
-            f'kill -INT $LP 2>/dev/null ; pkill -INT -f multi_camera 2>/dev/null ; sleep 5 ; fi ; done')
+            f'kill -TERM $LP 2>/dev/null ; pkill -TERM -f multi_camera.launch 2>/dev/null ; sleep 5 ; fi ; done')
     cmd = "source /opt/ros/jazzy/setup.bash ; " + " ; ".join(steps)
     print(f"[calib] sequential capture of {len(cams)} camera(s), one at a time "
           f"({frames} frames each)…")
     run = subprocess.run(
         docker_prefix() + ["run", "--rm", "--label", "scanner-ros=1", "--privileged",
                            "--network", "host",
+                           "-e", "SCANNER_HEAD=" + os.environ.get("SCANNER_HEAD", ""),
                            "-v", "/dev/bus/usb:/dev/bus/usb", "-v", f"{HERE}:/scanner",
                            IMAGE, "bash", "-lc", cmd],
         capture_output=True, text=True, timeout=90 * len(cams) + 60)

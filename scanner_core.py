@@ -226,11 +226,17 @@ class Xtion:
         return f"{XTION_VENDOR}/{self.product}@{self.bus}/{self.dev}"
 
 
+def port_key(port: str) -> list:
+    """Natural order for USB port paths: 1-7 < 1-9 < 1-10 < 1-10.2."""
+    return [(0, int(x), "") if x.isdigit() else (1, 0, x)
+            for x in port.replace("-", ".").replace(":", ".").split(".")]
+
+
 def detect_xtions(sysfs: Path = Path("/sys/bus/usb/devices")) -> list[Xtion]:
-    """Every PrimeSense device currently enumerated, sorted by port path."""
+    """Every PrimeSense device currently enumerated, in natural port order."""
     found: list[Xtion] = []
     try:
-        entries = sorted(os.listdir(sysfs))
+        entries = sorted(os.listdir(sysfs), key=port_key)
     except OSError:
         return found
     for name in entries:
@@ -586,6 +592,32 @@ def cmd_station(sub: str, *extra: str) -> Command:
               "list": "Listing sweeps", "clear": "Clearing sweeps"}
     return Command(_launcher("station", sub, *extra), titles.get(sub, f"station {sub}"),
                    needs_camera=1 if sub == "capture" else 0)
+
+
+HEAD_PORT = 5599
+HEAD_ENV = "SCANNER_HEAD"     # host[:port] of a network sensor head (empty = USB here)
+
+
+def split_head(head: str) -> tuple[str, int]:
+    host, _, port = head.strip().partition(":")
+    return host, int(port) if port.isdigit() else HEAD_PORT
+
+
+def head_local_argv() -> list[str]:
+    """The sensor head on THIS PC (cameras plugged in here), via the launcher."""
+    return _launcher("head")
+
+
+def cmd_head_probe(head: str) -> Command:
+    host, port = split_head(head)
+    return Command([python_exe(), "-u", str(HERE / "sensor_head" / "head_probe.py"), host,
+                    "--port", str(port), "--seconds", "10"],
+                   f"Checking the sensor head at {host}")
+
+
+def cmd_calibrate_head(head: str) -> Command:
+    return Command([python_exe(), "-u", str(HERE / "calibrate_head.py"), "--head", head.strip()],
+                   "Calibrating the cameras (feature matching via the sensor head)")
 
 
 def cmd_build_image() -> Command:

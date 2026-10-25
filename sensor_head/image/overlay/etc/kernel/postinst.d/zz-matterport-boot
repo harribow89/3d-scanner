@@ -1,0 +1,20 @@
+#!/bin/sh
+# Keep the U-Boot boot partition (/boot, ext2) in step with Debian kernel
+# updates: zImage, uInitrd (U-Boot ramdisk format) and the i.MX6 device trees.
+# Called by the kernel postinst with the version as $1; also safe to run by hand:
+#   /etc/kernel/postinst.d/zz-matterport-boot $(uname -r)
+set -e
+V=${1:-$(ls /lib/modules | sort -V | tail -n 1)}
+[ -e "/boot/vmlinuz-$V" ] || exit 0
+cp "/boot/vmlinuz-$V" /boot/zImage
+# legacy uImage for old Boundary U-Boot builds without bootz
+mkimage -A arm -O linux -T kernel -C none -a 0x10008000 -e 0x10008000 \
+  -n "linux $V" -d /boot/zImage /boot/uImage >/dev/null
+if [ -e "/boot/initrd.img-$V" ]; then
+  mkimage -A arm -O linux -T ramdisk -C none -n "initrd $V" -d "/boot/initrd.img-$V" /boot/uInitrd >/dev/null
+fi
+mkdir -p /boot/dtbs
+for d in /usr/lib/linux-image-$V/imx6*.dtb; do
+  [ -e "$d" ] && cp "$d" /boot/dtbs/
+done
+sync

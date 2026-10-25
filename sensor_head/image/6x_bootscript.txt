@@ -1,0 +1,72 @@
+# U-Boot script for the Matterport Pro2 board (Boundary Devices i.MX6 module).
+#
+# Works with three generations of U-Boot:
+#  * Boundary factory U-Boot (SPI flash): searches the first partition of
+#    sata 0 / mmc 0 / mmc 1 for /6x_bootscript and sets dtype, disk, (fs,)
+#    and on newer versions cpu, board, prefix. Old ones only have ext2load
+#    and bootm: `${fs}load` expands to ext2load there and to load elsewhere,
+#    and a uImage + bootm fallback follows bootz.
+#  * mainline U-Boot distro boot: runs /boot.scr with devtype, devnum,
+#    distro_bootpart, fdtfile.
+# Build: mkimage -A arm -T script -C none -d 6x_bootscript.txt 6x_bootscript
+
+if itest.s "x${dtype}" == "x" ; then
+  if itest.s "x${devtype}" != "x" ; then
+    setenv dtype ${devtype} ; setenv disk ${devnum} ; setenv bootpart ${distro_bootpart}
+  fi
+fi
+if itest.s "x${dtype}" == "x" ; then setenv dtype mmc ; fi
+if itest.s "x${disk}" == "x" ; then setenv disk 0 ; fi
+if itest.s "x${bootpart}" == "x" ; then setenv bootpart 1 ; fi
+if itest.s "x${prefix}" == "x" ; then setenv prefix / ; fi
+echo "== Matterport sensor head: Debian from ${dtype} ${disk}:${bootpart} =="
+
+setenv a_zImage 0x10800000
+setenv a_fdt    0x13000000
+setenv a_initrd 0x13800000
+setenv initrd_high 0xffffffff
+setenv fdt_high 0xffffffff
+
+setenv soc imx6q
+if itest.s "x${cpu}" == "x6DL" ; then setenv soc imx6dl ; fi
+if itest.s "x${cpu}" == "x6SOLO" ; then setenv soc imx6dl ; fi
+if itest.s "x${cpu}" == "x6QP" ; then setenv soc imx6qp ; fi
+
+# Device tree: ${dtbname} (set by hand), ${fdtfile} (distro boot), the board
+# U-Boot reports, then the Boundary boards the Matterport carrier derives from.
+setenv fdt_ok 0
+for f in ${dtbname} ${fdtfile} ; do
+  if itest ${fdt_ok} == 0 ; then
+    if ${fs}load ${dtype} ${disk}:${bootpart} ${a_fdt} ${prefix}dtbs/${f} ; then
+      setenv fdt_ok 1 ; setenv dtbname ${f}
+    fi
+  fi
+done
+for b in ${board} nitrogen6x nitrogen6_som2 nitrogen6_max sabrelite ; do
+  if itest ${fdt_ok} == 0 ; then
+    if ${fs}load ${dtype} ${disk}:${bootpart} ${a_fdt} ${prefix}dtbs/${soc}-${b}.dtb ; then
+      setenv fdt_ok 1 ; setenv dtbname ${soc}-${b}.dtb
+    fi
+  fi
+done
+
+if itest ${fdt_ok} == 0 ; then
+  echo "!! no device tree for soc=${soc} board=${board} in ${prefix}dtbs/"
+  echo "!! pick one by hand, e.g.:  setenv dtbname imx6q-nitrogen6x.dtb ; boot"
+else
+  echo "device tree: ${dtbname}"
+  # root by partition UUID: U-Boot's and Linux's disk numbering differ
+  setenv bootargs console=ttymxc1,115200 root=PARTUUID=@ROOT_PARTUUID@ rootwait rw consoleblank=0 usbcore.autosuspend=-1 ${extra_bootargs}
+  if ${fs}load ${dtype} ${disk}:${bootpart} ${a_initrd} ${prefix}uInitrd ; then
+    if ${fs}load ${dtype} ${disk}:${bootpart} ${a_zImage} ${prefix}zImage ; then
+      bootz ${a_zImage} ${a_initrd} ${a_fdt}
+    fi
+    echo "-- bootz not available or failed; trying uImage + bootm"
+    if ${fs}load ${dtype} ${disk}:${bootpart} ${a_zImage} ${prefix}uImage ; then
+      bootm ${a_zImage} ${a_initrd} ${a_fdt}
+    fi
+    echo "!! could not start the kernel"
+  else
+    echo "!! could not load ${prefix}uInitrd"
+  fi
+fi
