@@ -228,6 +228,8 @@ def _part(no, key, name, group, kind, size, pos, **kw):
     for extra in ("print_profile", "radius", "axis", "draft", "family"):
         if extra in kw:
             part[extra] = kw[extra]
+    if part["printed"] and kind == "box" and "print_profile" in part:
+        part["print_profile"] = {**part["print_profile"], "draft": True}
     return part
 
 
@@ -410,10 +412,8 @@ def printed_parts(p, lv, tiers, board_y, tray_y) -> list:
     Every part that gets printed, positioned in the assembly.
 
     Geometry here is parametric massing with correct bounding sizes and mounting
-    positions. Parts marked draft=True in their profile need dimensioned CAD
-    against the real hardware before you print them for fit; the rest
-    (comb, pad, shroud, diffuser, VESA plate) are simple enough to print as
-    generated once the hole positions are confirmed.
+    positions. Box models stay draft until their functional openings, slots and
+    mounting features are modeled against the real hardware.
     """
     W, D = p["width"], p["depth"]
     hx, hy = W / 2.0, D / 2.0

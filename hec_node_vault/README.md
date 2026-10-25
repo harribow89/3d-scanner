@@ -48,6 +48,9 @@ blender --background --factory-startup -P build_blender.py -- \
     --export-stl printed/ --manifest manifest.md
 ```
 
+The current printed parts are draft massing models, so this command will not
+export them as printable STLs until their functional geometry is modeled.
+
 **Detail geometry** (implied by any `--render`, or on its own with `--detail`):
 
 ```bash
