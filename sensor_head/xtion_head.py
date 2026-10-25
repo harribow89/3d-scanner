@@ -128,6 +128,51 @@ def uri_for_port(port):
     return None
 
 
+def prepare_openni(lib_dir, usb_mode):
+    """OpenNI2 reads the PS1080 driver's settings from Drivers/PS1080.ini next
+    to the driver. To choose the USB transfer mode without touching system
+    files, build a private copy of the layout (symlinks) plus our own ini.
+
+    bulk (default): no isochronous bandwidth reservation, so 3 sensors share
+    one USB-2 link / hub (the i.MX6 board) without 'Failed to set USB
+    interface'. Verified 2026-10-26: the Matterport sensors stream at 30 fps
+    in bulk mode (interface 0, alt setting 0 = bulk endpoints)."""
+    # Always a private layout: Debian's runtime package ships only
+    # libOpenNI2.so.0, but the bindings load "libOpenNI2.so" (normally from -dev).
+    drivers = os.path.join(lib_dir, "OpenNI2", "Drivers")
+    base = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    priv = os.path.join(base, f"xtion-head-openni-{os.getuid()}")
+    pdrv = os.path.join(priv, "OpenNI2", "Drivers")
+    os.makedirs(pdrv, exist_ok=True)
+
+    def link(src, dst):
+        if os.path.lexists(dst):
+            os.remove(dst)
+        os.symlink(src, dst)
+
+    lib = os.path.join(lib_dir, "libOpenNI2.so")
+    if not os.path.exists(lib):
+        lib = os.path.join(lib_dir, "libOpenNI2.so.0")
+    link(lib, os.path.join(priv, "libOpenNI2.so"))
+    for name in os.listdir(drivers):
+        if not name.endswith(".ini"):
+            link(os.path.join(drivers, name), os.path.join(pdrv, name))
+    ini = os.path.join(pdrv, "PS1080.ini")
+    if usb_mode == "default":
+        if os.path.lexists(ini):
+            os.remove(ini)
+        if os.path.exists(os.path.join(drivers, "PS1080.ini")):
+            link(os.path.join(drivers, "PS1080.ini"), ini)
+    else:
+        iface = {"bulk": 2, "iso": 1}[usb_mode]
+        if os.path.lexists(ini):
+            os.remove(ini)
+        with open(ini, "w") as fh:
+            fh.write(f"[Device]\n; 0 = driver default, 1 = isochronous, 2 = bulk\n"
+                     f"UsbInterface={iface}\n")
+    return priv
+
+
 # --------------------------------------------------------------- frame storage
 class Latest:
     """Latest frame per (ns, kind) + a condition for senders."""
@@ -446,15 +491,21 @@ def main(argv=None):
     ap.add_argument("--config", default="/etc/xtion-head.json",
                     help='optional {"order": ["1-1.2", ...], "names": {"1-1.2": "camera1"}}')
     ap.add_argument("--openni-dir", default=None, help="directory holding libOpenNI2.so")
+    ap.add_argument("--usb", choices=("bulk", "iso", "default"), default="bulk",
+                    help="USB transfer mode: bulk (default) shares one USB-2 link/hub safely; "
+                         "iso reserves bandwidth per camera; default = the driver's own choice")
     ap.add_argument("--list", action="store_true", help="list the sensors and exit")
     args = ap.parse_args(argv)
 
     dirs = [d for d in (args.openni_dir, "/usr/lib/arm-linux-gnueabihf",
                         "/usr/lib/aarch64-linux-gnu", "/usr/lib/x86_64-linux-gnu", "/usr/lib")
-            if d and os.path.exists(os.path.join(d, "libOpenNI2.so"))]
+            if d and (os.path.exists(os.path.join(d, "libOpenNI2.so"))
+                      or os.path.exists(os.path.join(d, "libOpenNI2.so.0")))]
     if not dirs:
         sys.exit("xtion_head: libOpenNI2.so not found (apt install libopenni2-0)")
-    openni2.initialize(dirs[0])
+    use = prepare_openni(dirs[0], args.usb) if not args.openni_dir else dirs[0]
+    openni2.initialize(use)
+    log(f"OpenNI2 from {dirs[0]}, USB {args.usb} transfers")
 
     if args.list:
         ports = xtion_ports()
