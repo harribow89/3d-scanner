@@ -45,7 +45,7 @@ cleanup() {
 trap cleanup EXIT
 bindm() { mount --bind "$1" "$2"; MOUNTS+=("$2"); }
 bindm /proc "$ROOT/proc"; bindm /sys "$ROOT/sys"; bindm /dev "$ROOT/dev"; bindm /dev/pts "$ROOT/dev/pts"
-cp /etc/resolv.conf "$ROOT/etc/resolv.conf"
+rm -f "$ROOT/etc/resolv.conf"; cp -L /etc/resolv.conf "$ROOT/etc/resolv.conf"
 in_root() { LC_ALL=C DEBIAN_FRONTEND=noninteractive chroot "$ROOT" "$@"; }
 
 # ------------------------------------------------------------- 2. packages
@@ -72,7 +72,17 @@ in_root apt-get install -y --no-install-recommends \
   python3 python3-numpy python3-pip python3-pil \
   cloud-guest-utils e2fsprogs parted kmod \
   nano less htop curl locales tzdata
-in_root pip3 install --break-system-packages --no-cache-dir primesense==2.2.0.30.post5
+# installing systemd-resolved turns /etc/resolv.conf into a link that only
+# works on a booted system; give the chroot working DNS again
+rm -f "$ROOT/etc/resolv.conf"; cp -L /etc/resolv.conf "$ROOT/etc/resolv.conf"
+# primesense is pure Python: fetch it on the build PC, install from the file
+mkdir -p "$WORK/wheels"
+if ! ls "$WORK/wheels"/primesense-* >/dev/null 2>&1; then
+  python3 -m pip download --no-deps --dest "$WORK/wheels" primesense==2.2.0.30.post5
+fi
+mkdir -p "$ROOT/tmp/wheels"; cp "$WORK/wheels"/primesense-* "$ROOT/tmp/wheels/"
+in_root sh -c 'pip3 install --break-system-packages --no-cache-dir --no-index --no-build-isolation /tmp/wheels/primesense-*'
+rm -rf "$ROOT/tmp/wheels"
 
 # --------------------------------------------------------- 3. our software
 echo "== overlay + sensor head"
