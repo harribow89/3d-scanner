@@ -86,7 +86,8 @@ COMMON=(--rm --init --privileged --network host --label "$LABEL=1"
         -e HOME=/scanner/.container_home
         -e DISPLAY="${DISPLAY:-}" -v /tmp/.X11-unix:/tmp/.X11-unix
         -e SCANNER_FAKE_CAMERA="$FAKE" -e MAP_FRESH="$MAP_FRESH"
-        -e RTAB_TUNE="$RTAB_TUNE" -e ODOM_TUNE="$ODOM_TUNE")
+        -e RTAB_TUNE="$RTAB_TUNE" -e ODOM_TUNE="$ODOM_TUNE"
+        -e SCANNER_HEAD="${SCANNER_HEAD:-}" -e HEAD_FPS="${HEAD_FPS:-15}")
 
 # ----------------------------------------------------------------- host helpers
 fix_owner() {
@@ -175,6 +176,18 @@ require_camera() {   # require_camera <min cameras>
   local need=${1:-1} n
   if [ "$FAKE" = "1" ]; then
     echo ">> SIMULATED camera (SCANNER_FAKE_CAMERA=1) — no hardware used"
+    return 0
+  fi
+  if [ -n "${SCANNER_HEAD:-}" ]; then
+    # cameras live on a network sensor head (the i.MX6 board or `head` mode)
+    local h=${SCANNER_HEAD%%:*} p=${SCANNER_HEAD##*:}
+    [ "$p" = "$SCANNER_HEAD" ] && p=5599
+    if ! timeout 3 bash -c "exec 3<>/dev/tcp/$h/$p" 2>/dev/null; then
+      echo "ERROR: sensor head $h:$p is not answering. Is the board on and on the network" >&2
+      echo "       (or is './run_scanner_docker.sh head' running on this PC)?" >&2
+      exit 3
+    fi
+    echo ">> using the sensor head at $h:$p"
     return 0
   fi
   detach_xtion_audio
@@ -282,6 +295,18 @@ case "$cmd" in
 
   build)
     "${DOCKER[@]}" build -t "$IMAGE" -f "$HERE/Dockerfile" "$HERE"
+    ;;
+
+  head)
+    # Run the network sensor head on THIS PC (all Xtions plugged in here),
+    # then use any multi-camera mode with SCANNER_HEAD=127.0.0.1. The i.MX6
+    # image runs the same program as a service. Extra args go to xtion_head.py.
+    shift || true
+    detach_xtion_audio
+    PY="$HERE/.venv/bin/python"; [ -x "$PY" ] || PY="python3"
+    "$PY" -c "import primesense" 2>/dev/null || {
+      echo "ERROR: the 'primesense' package is missing: $PY -m pip install primesense" >&2; exit 5; }
+    exec "$PY" -u "$HERE/sensor_head/xtion_head.py" --config "$HERE/cameras.json" "$@"
     ;;
 
   stop)

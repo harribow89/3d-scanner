@@ -4,3 +4,4 @@ numpy==2.4.6
 scipy==1.18.0
 pillow==12.2.0
 PySide6==6.7.0
+primesense==2.2.0.30.post5

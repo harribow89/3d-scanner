@@ -20,7 +20,7 @@ import os
 import launch
 import launch_ros.actions
 import launch_ros.descriptions
-from launch.actions import TimerAction
+from launch.actions import ExecuteProcess, TimerAction
 from launch_ros.actions import Node
 
 HERE = os.path.dirname(__file__)
@@ -201,12 +201,26 @@ def generate_launch_description():
         wanted = set(only.split(","))
         cams = [c for c in cams if c["ns"] in wanted]
 
-    devmap = assign_devices(cams)
+    # SCANNER_HEAD=host[:port]: the cameras are on a network sensor head (the
+    # i.MX6 board, or sensor_head/xtion_head.py on this PC). One bridge node
+    # publishes the same topics the openni2 drivers would; no USB here at all.
+    head = os.environ.get("SCANNER_HEAD", "").strip()
     ref = cams[0]["ns"]
     nodes = []
+    if head:
+        nodes.append(ExecuteProcess(
+            cmd=["python3", "/scanner/sensor_head/head_bridge.py", "--head", head,
+                 "--only", ",".join(c["ns"] for c in cams),
+                 "--fps", os.environ.get("HEAD_FPS", "15")],
+            output="screen", name="head_bridge"))
+        devmap = {c["ns"]: "" for c in cams}
+    else:
+        devmap = assign_devices(cams)
     for i, cam in enumerate(cams):
         graph = camera_graph(cam["ns"], devmap[cam["ns"]], dmode, cmode, depth_only)
         container, tfs = graph[0], graph[1:]
+        if head:
+            container = None
         # STAGGERED USB OPEN: starting all the OpenNI2 drivers at once makes them
         # all try to reserve their USB interface simultaneously, and on a shared
         # USB-2 controller the later ones lose the race ("Failed to set USB
@@ -215,7 +229,9 @@ def generate_launch_description():
         # (the same reason station_scan.py brings cameras up sequentially). The
         # reference camera (i=0) starts immediately; the rest are delayed by
         # i*stagger seconds. TFs are cheap and publish right away.
-        if i == 0 or stagger <= 0:
+        if container is None:
+            pass
+        elif i == 0 or stagger <= 0:
             nodes.append(container)
         else:
             nodes.append(TimerAction(period=i * stagger, actions=[container]))
