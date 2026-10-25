@@ -16,6 +16,7 @@ if os.environ.get("XDG_SESSION_TYPE") == "wayland" or os.environ.get("WAYLAND_DI
     os.environ["GDK_BACKEND"] = "x11"
     os.environ.setdefault("DISPLAY", ":0")  # XWayland display for the fallback
 
+import numpy as np
 import open3d as o3d
 
 path = sys.argv[1] if len(sys.argv) > 1 else "output/scan_20260426_001324_cloud_cloud.ply"
@@ -33,21 +34,22 @@ pcd = o3d.io.read_point_cloud(path)
 n = len(pcd.points)
 print(f"  {n:,} points loaded")
 
-# Downsample to something renderable (~1–2 M points)
-voxel = 0.003  # 3 mm
-pcd_down = pcd.voxel_down_sample(voxel)
-n_down = len(pcd_down.points)
-print(f"  Downsampled to {n_down:,} points (voxel={voxel*1000:.0f} mm)")
+# Only thin out really big clouds; the exports are already voxelled at the
+# detail you chose, and re-gridding them here made them look blocky.
+pcd_down = pcd
+voxel = 0.0015
+while len(pcd_down.points) > 4_000_000:
+    pcd_down = pcd.voxel_down_sample(voxel)
+    voxel *= 1.5
+if len(pcd_down.points) != n:
+    print(f"  Thinned to {len(pcd_down.points):,} points for display")
 
-pcd_down.estimate_normals(
-    search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.02, max_nn=30)
-)
-
-print("Opening viewer — drag to rotate, scroll to zoom, Q to quit.")
-o3d.visualization.draw_geometries(
-    [pcd_down],
-    window_name=path,
-    width=1280,
-    height=800,
-    point_show_normal=False,
-)
+print("Opening viewer — drag to rotate, scroll to zoom, +/- point size, Q to quit.")
+vis = o3d.visualization.Visualizer()
+vis.create_window(window_name=path, width=1280, height=800)
+vis.add_geometry(pcd_down)
+opt = vis.get_render_option()
+opt.point_size = 2.0          # Open3D's default 5 px squares look like blocks
+opt.background_color = np.asarray([0.08, 0.08, 0.1])
+vis.run()
+vis.destroy_window()

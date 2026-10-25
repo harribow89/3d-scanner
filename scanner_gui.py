@@ -493,18 +493,28 @@ class ScannerWindow(QMainWindow):
         grid.addWidget(self.range_spin, 1, 1)
         grid.addWidget(QLabel("Voxel (mm):"), 1, 2)
         self.voxel_spin = QDoubleSpinBox()
-        self.voxel_spin.setRange(1.0, 50.0)
-        self.voxel_spin.setSingleStep(1.0)
-        self.voxel_spin.setValue(12.0)
+        self.voxel_spin.setRange(0.5, 50.0)
+        self.voxel_spin.setDecimals(1)
+        self.voxel_spin.setSingleStep(0.5)
+        self.voxel_spin.setValue(5.0)
         self.voxel_spin.setToolTip("Downsampling grid. Smaller keeps more detail but makes "
-                                   "bigger, slower files.")
+                                   "bigger, slower files. The Xtion's own depth noise is "
+                                   "~1.5 mm at 0.8 m and ~1 cm at 3 m.")
         grid.addWidget(self.voxel_spin, 1, 3)
+        grid.addWidget(QLabel("Detail:"), 2, 0)
+        self.decim_combo = QComboBox()
+        self.decim_combo.addItem("Full (every depth pixel)", 1)
+        self.decim_combo.addItem("High (every 2nd pixel)", 2)
+        self.decim_combo.addItem("Draft (every 4th pixel)", 4)
+        self.decim_combo.setToolTip("How many depth pixels of each keyframe go into the cloud. "
+                                    "RTAB-Map's own default is every 4th, which looks blocky.")
+        grid.addWidget(self.decim_combo, 2, 1)
         self.export_target = QLabel("")
         self.export_target.setObjectName("hint")
-        grid.addWidget(self.export_target, 2, 0, 1, 3)
+        grid.addWidget(self.export_target, 3, 0, 1, 3)
         self.export_btn = primary(QPushButton("Export cloud"))
         self.export_btn.clicked.connect(self._on_export)
-        grid.addWidget(self.export_btn, 2, 3)
+        grid.addWidget(self.export_btn, 3, 3)
         lay.addWidget(g)
 
         g = QGroupBox("Clean / isolate the object and build a mesh")
@@ -738,7 +748,8 @@ class ScannerWindow(QMainWindow):
             self.preset_combo.setCurrentText(preset)
         if preset == "Custom":
             self.range_spin.setValue(s.value("max_range", 4.0, type=float))
-            self.voxel_spin.setValue(s.value("voxel_mm", 12.0, type=float))
+            self.voxel_spin.setValue(s.value("voxel_mm", 5.0, type=float))
+            self._set_decimation(s.value("decimation", 2, type=int))
             self.strategy_combo.setCurrentText(s.value("strategy", "raw_clean", type=str))
         geo = s.value("geometry")
         if geo:
@@ -751,6 +762,7 @@ class ScannerWindow(QMainWindow):
         s.setValue("preset", self.preset_combo.currentText())
         s.setValue("max_range", self.range_spin.value())
         s.setValue("voxel_mm", self.voxel_spin.value())
+        s.setValue("decimation", self._decimation())
         s.setValue("strategy", self.strategy_combo.currentText())
         s.setValue("geometry", self.saveGeometry())
         s.setValue("scan_mode", self.scan_mode)
@@ -895,12 +907,22 @@ class ScannerWindow(QMainWindow):
         def clean():
             self._run_then(core.cmd_isolate(cloud, strategy, voxel, stl), view)
 
-        self._run_then(core.cmd_export(name, preset["max_range"], voxel), clean)
+        self._run_then(core.cmd_export(name, preset["max_range"], voxel,
+                                       decimation=preset.get("decimation", 2)), clean)
 
     # --------------------------------------------------------------- handlers
+    def _decimation(self) -> int:
+        return int(self.decim_combo.currentData() or 2)
+
+    def _set_decimation(self, d: int):
+        i = self.decim_combo.findData(int(d))
+        if i >= 0:
+            self.decim_combo.setCurrentIndex(i)
+
     def _on_export(self):
         name = self._export_name()
-        self._run(core.cmd_export(name, self.range_spin.value(), self.voxel_spin.value() / 1000.0))
+        self._run(core.cmd_export(name, self.range_spin.value(), self.voxel_spin.value() / 1000.0,
+                                  decimation=self._decimation()))
 
     def _export_name(self) -> str:
         name = self.name_edit.text().strip() or "scan"
@@ -915,6 +937,7 @@ class ScannerWindow(QMainWindow):
         if p:
             self.range_spin.setValue(p["max_range"])
             self.voxel_spin.setValue(p["voxel"] * 1000.0)
+            self._set_decimation(p.get("decimation", 2))
             self.strategy_combo.setCurrentText(p["strategy"])
 
     def _selected_file(self) -> Path | None:
@@ -958,7 +981,8 @@ class ScannerWindow(QMainWindow):
                 src = core.export_cloud_path(name)
                 self._run(core.cmd_isolate(src, strategy, voxel, core.OUTPUT_DIR / f"{name}.stl"))
 
-        if self._run(core.cmd_export(name, self.range_spin.value(), voxel)):
+        if self._run(core.cmd_export(name, self.range_spin.value(), voxel,
+                                     decimation=self._decimation())):
             self.runner.finished.connect(after_export)
 
     def _on_view(self):

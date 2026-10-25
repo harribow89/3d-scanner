@@ -88,7 +88,7 @@ def _prepare_mesh_cloud(cloud, voxel):
     if len(working.points) == 0:
         return working
 
-    if len(working.points) > 180000:
+    if len(working.points) > 1500000:
         working = working.voxel_down_sample(max(voxel * 1.5, 0.0015))
 
     search_radius = max(voxel * 4.0, 0.01)
@@ -118,12 +118,21 @@ def _reconstruct_mesh(cloud, voxel):
     if len(working.points) == 0:
         raise ValueError("Mesh preparation removed all points")
 
-    depth = 7 if len(working.points) < 5000 else 8 if len(working.points) < 30000 else 9
+    # Octree depth from the scan size, so a cell is about one voxel: a fixed
+    # depth 9 gave ~1 cm cells on a room (blocky) and wasted time on objects.
+    extent = float(np.max(working.get_axis_aligned_bounding_box().get_extent()))
+    depth = int(np.clip(np.ceil(np.log2(max(extent, 1e-3) / max(voxel, 1e-4))), 7, 11))
+    if len(working.points) < 5000:
+        depth = min(depth, 8)
     try:
-        mesh, _densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+        mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
             working,
             depth=depth,
         )
+        # drop the low-density "bubble" Poisson invents where there was no data
+        densities = np.asarray(densities)
+        if densities.size:
+            mesh.remove_vertices_by_mask(densities < np.quantile(densities, 0.04))
         mesh = mesh.crop(working.get_axis_aligned_bounding_box())
         method = "poisson"
     except Exception:
@@ -143,8 +152,8 @@ def _reconstruct_mesh(cloud, voxel):
     mesh.remove_duplicated_vertices()
     mesh.remove_non_manifold_edges()
 
-    if len(mesh.triangles) > 250000:
-        target = max(1000, len(mesh.triangles) // 2)
+    if len(mesh.triangles) > 3000000:
+        target = 3000000
         mesh = mesh.simplify_quadric_decimation(target)
 
     mesh.compute_vertex_normals()

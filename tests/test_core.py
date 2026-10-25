@@ -61,7 +61,10 @@ class CommandBuilderTests(unittest.TestCase):
 
     def test_export_uses_project_relative_paths(self):
         c = core.cmd_export("room", 4.5, 0.02)
-        self.assertEqual(c.argv[1:], ["export", "rtabmap.db", "output/room.ply", "4.50", "0.0200"])
+        self.assertEqual(c.argv[1:], ["export", "rtabmap.db", "output/room.ply", "4.50", "0.0200", "2"])
+        self.assertEqual(core.cmd_export("o", 1.5, 0.002, decimation=1).argv[-1], "1")
+        for p in core.EXPORT_PRESETS.values():
+            self.assertIn(p["decimation"], (1, 2, 4))
         self.assertEqual(core.export_cloud_path("room"), core.OUTPUT_DIR / "room_cloud.ply")
 
     def test_map_fresh_flag_goes_through_env(self):
