@@ -91,6 +91,55 @@ class CommandBuilderTests(unittest.TestCase):
         self.assertIn("'", c.shell_preview())
 
 
+class ProgressTests(unittest.TestCase):
+    def test_explicit_progress_lines(self):
+        self.assertEqual(core.parse_progress("PROGRESS 42 Mesh: Poisson surface"),
+                         (42, "Mesh: Poisson surface"))
+        self.assertEqual(core.parse_progress("PROGRESS 140 x")[0], 100)
+        self.assertIsNone(core.parse_progress("PROGRESS abc"))
+        self.assertIsNone(core.parse_progress("random log line"))
+
+    def test_rtabmap_export_stages_are_monotonic(self):
+        # the real output of rtabmap-export on the 469-node map (2026-10-26)
+        lines = [
+            ">> exporting 469-node map: max range 4.0 m, voxel 0.005 m, depth decimation 2",
+            'Opening database "/scanner/rtabmap.db"...',
+            'Opening database "/scanner/rtabmap.db"... done (0.000129s).',
+            "Optimizing the map (Full global optimization)...",
+            "Optimizing the map (Full global optimization)... done (0.07s, poses=389, links=463).",
+            "Create and assemble the clouds...",
+            "Create and assemble the clouds... done (7.56s, 17331904 points).",
+            "Voxel grid filtering of the assembled cloud... (voxel=0.005000, 17331904 points)",
+            "Voxel grid filtering of the assembled cloud.... done! (20.88s, 10821861 points)",
+            "Computing normals of the assembled cloud... (k=20, 10821861 points)",
+            "Computing normals of the assembled cloud... done! (4.1s, 10821861 points)",
+            "Adjust normals to viewpoints of the assembled cloud... (10821861 points)",
+            "Adjust normals to viewpoints of the assembled cloud... (4.59s, 10821861 points)",
+            "Saving /scanner/output/progtest_cloud.ply... (10821861 points)",
+            "Saving /scanner/output/progtest_cloud.ply... done!",
+            "Exported: /home/jim/x/output/progtest_cloud.ply",
+        ]
+        pcts = [core.parse_progress(l)[0] for l in lines]
+        self.assertEqual(pcts, sorted(pcts))
+        self.assertEqual(pcts[-1], 100)
+        self.assertEqual(core.parse_progress(lines[6])[0], 35)   # "...done" beats the start line
+        self.assertIn("Voxel", core.parse_progress(lines[7])[1])
+
+    def test_describe_exit_and_memory(self):
+        self.assertEqual(core.describe_exit(0), "finished")
+        self.assertIn("memory", core.describe_exit(137))
+        self.assertIn("memory", core.describe_exit(-3, crashed=True))
+        self.assertIn("empty", core.describe_exit(4))
+        self.assertIn("exit 7", core.describe_exit(7))
+        gb = core.mem_available_gb()
+        self.assertTrue(gb is None or gb > 0)
+        self.assertIsNone(core.mem_available_gb("/nonexistent/meminfo"))
+
+    def test_cpu_ticks_of_own_process(self):
+        self.assertGreaterEqual(core.tree_cpu_ticks([os.getpid()]), 0)
+        self.assertEqual(core.tree_cpu_ticks([]), 0)
+
+
 class XtionDetectionTests(unittest.TestCase):
     def make_dev(self, root, name, vid, pid, bus, dev):
         d = root / name
