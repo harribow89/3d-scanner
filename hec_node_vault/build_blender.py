@@ -315,14 +315,15 @@ def build(preset: str = "brief", explode: float = 0.0) -> dict:
 
 def export_printed_stls(directory: str) -> list:
     """
-    Write one STL per printed part, moved to the origin for slicing.
+    Write one STL per print-ready part, moved to the origin for slicing.
 
-    Parts are exported as generated: the ones flagged draft in the manifest are
-    massing models and need dimensioned CAD before they will fit real hardware.
+    Draft parts are bounding-box massing models and need functional CAD before
+    they can be exported as printable geometry.
     """
     os.makedirs(directory, exist_ok=True)
     written = []
-    printed = [o for o in bpy.context.scene.objects if o.get("printed")]
+    printed = [o for o in bpy.context.scene.objects
+               if o.get("printed") and o.get("print_status") == "ready"]
 
     for obj in printed:
         duplicate = obj.copy()
@@ -433,7 +434,10 @@ def main():
     stl_dir = _arg("--export-stl")
     if stl_dir:
         written = export_printed_stls(stl_dir)
-        print(f"[HEC] {len(written)} STL(s) -> {stl_dir}")
+        if written:
+            print(f"[HEC] {len(written)} STL(s) -> {stl_dir}")
+        else:
+            print("[HEC] no print-ready STL files (all printed geometry is draft massing)")
 
     if (_flag("--detail") or _arg("--render") or _arg("--render-steps")) \
             and not _flag("--no-detail"):

@@ -220,7 +220,7 @@ def assembly_steps(spec: dict) -> list:
                 "Fit the printed end caps top and bottom.",
             ],
             "warning": "Vacuum the swarf now. Galvanised filings inside a running "
-                       "machine are a short waiting to happen.",
+                       "machine are a short circuit waiting to happen.",
         },
         {
             "no": 3, "title": "Build the plinth",
