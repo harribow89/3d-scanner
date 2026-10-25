@@ -197,7 +197,9 @@ class LivePreview(Node):
             valid = np.isfinite(z) & (z > 0)
             st.fill_pct = round(float(valid.mean() * 100.0), 1)
             st.median_m = round(float(np.median(z[valid])), 3) if valid.any() else 0.0
-            norm = np.clip((z - NEAR_M) / (FAR_M - NEAR_M), 0.0, 1.0)
+            # the real Xtion sends registered depth as 32FC1 with NaN holes
+            zf = np.where(valid, z, 0.0)
+            norm = np.clip((zf - NEAR_M) / (FAR_M - NEAR_M), 0.0, 1.0)
             idx = (255 - norm * 255).astype(np.uint8)          # near = red end of TURBO
             colour = cv2.applyColorMap(idx, cv2.COLORMAP_TURBO)
             colour[~valid] = 0

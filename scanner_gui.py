@@ -42,7 +42,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox,
                                QDoubleSpinBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
-                               QPlainTextEdit, QPushButton, QSizePolicy, QSpinBox,
+                               QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
                                QWidget)
 
@@ -61,6 +61,8 @@ QPushButton[class="primary"]:hover { background: #1f6fe0; }
 QPushButton[class="primary"]:disabled { background: #8fb4ea; }
 QPushButton#stop { background: #d9534f; color: white; font-weight: 700; border: none; border-radius: 4px; padding: 8px 18px; }
 QPushButton#stop:disabled { background: #c9a1a0; }
+QPushButton#mode { font-size: 14px; font-weight: 600; border: 2px solid #8b949e; border-radius: 6px; }
+QPushButton#mode:checked { background: #238636; color: white; border-color: #238636; }
 QLabel#hint { color: #555; }
 QLabel.preview { background: #111; color: #999; border: 1px solid #333; }
 """
@@ -324,8 +326,11 @@ class ScannerWindow(QMainWindow):
         h.addSpacing(18)
         self.run_label = QLabel("Idle")
         self.run_label.setObjectName("running")
+        self.run_label.setMinimumWidth(80)
+        self.run_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         h.addWidget(self.run_label, 1)
         self.map_label = QLabel("Map: none")
+        self.map_label.setMinimumWidth(240)
         h.addWidget(self.map_label)
         h.addSpacing(14)
         self.stop_btn = QPushButton("■ Stop  (F8)")
@@ -340,7 +345,7 @@ class ScannerWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_scan_tab(), "Scan")
         self.tabs.addTab(self._build_export_tab(), "Export && Clean")
-        self.tabs.addTab(self._build_multicam_tab(), "Multi-Camera")
+        self.tabs.addTab(self._build_multicam_tab(), "Multi-Camera (advanced)")
         self.tabs.addTab(self._build_setup_tab(), "Setup")
         self.tabs.addTab(self._build_log_tab(), "Log")
         root.addWidget(self.tabs, 1)
@@ -353,8 +358,36 @@ class ScannerWindow(QMainWindow):
         self.preview = PreviewPanel()
         lay.addWidget(self.preview, 3)
 
-        right = QVBoxLayout()
-        lay.addLayout(right, 2)
+        right_w = QWidget()
+        right = QVBoxLayout(right_w)
+        right.setContentsMargins(0, 0, 6, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(right_w)
+        scroll.setMinimumWidth(470)
+        lay.addWidget(scroll, 2)
+
+        g0 = QGroupBox("What are you scanning?")
+        l0 = QVBoxLayout(g0)
+        row = QHBoxLayout()
+        self.mode_btns: dict[str, QPushButton] = {}
+        for key, m in core.SCAN_MODES.items():
+            b = QPushButton(("🏠  " if key == "room" else "📦  ") + m["label"])
+            b.setCheckable(True)
+            b.setMinimumHeight(38)
+            b.setObjectName("mode")
+            b.clicked.connect(lambda _=False, k=key: self._set_mode(k))
+            row.addWidget(b)
+            self.mode_btns[key] = b
+        l0.addLayout(row)
+        self.mode_tips = QLabel("")
+        self.mode_tips.setObjectName("hint")
+        self.mode_tips.setWordWrap(True)
+        l0.addWidget(self.mode_tips)
+        right.addWidget(g0)
+        self.scan_mode = core.DEFAULT_SCAN_MODE
 
         g1 = QGroupBox("1 · Camera")
         l1 = QVBoxLayout(g1)
@@ -375,7 +408,7 @@ class ScannerWindow(QMainWindow):
         l1.addLayout(row)
         right.addWidget(g1)
 
-        g2 = QGroupBox("2 · Scan the scene (RTAB-Map SLAM)")
+        g2 = QGroupBox("2 · Scan (RTAB-Map SLAM)")
         l2 = QVBoxLayout(g2)
         self.fresh_cb = QCheckBox("Start a new map (clears the previous one)")
         self.fresh_cb.setChecked(True)
@@ -383,18 +416,18 @@ class ScannerWindow(QMainWindow):
         self.scan_btn = primary(QPushButton("●  Start scan  (F6)"))
         self.scan_btn.setShortcut("F6")
         self.scan_btn.setToolTip("Headless SLAM with the live preview on the left. "
-                                 "Move the camera slowly; press Stop to finish. (F6)")
-        self.scan_btn.clicked.connect(lambda: self._run(core.cmd_map(self.fresh_cb.isChecked())))
+                                 "Move the camera slowly; press Stop (F8) to finish. (F6)")
+        self.scan_btn.clicked.connect(self._on_scan)
         l2.addWidget(self.scan_btn)
-        b = QPushButton("Open the RTAB-Map window (SLAM + 3D view)  (F7)")
+        b = QPushButton("Scan with the RTAB-Map 3D window  (F7)")
         b.setShortcut("F7")
         b.setToolTip("Same SLAM, plus rtabmap_viz showing the growing 3D map. "
-                     "Close that window to finish. (F7)")
-        b.clicked.connect(lambda: self._run(core.cmd_gui(self.fresh_cb.isChecked())))
+                     "Close that window (or press Stop) to finish. (F7)")
+        b.clicked.connect(self._on_scan_window)
         l2.addWidget(b)
-        tips = QLabel("Move slowly, keep the subject 0.5–3 m away, keep lots of overlap "
-                      "between views and come back to places you already scanned "
-                      "(loop closures fix drift).")
+        tips = QLabel("Move slowly and keep lots of overlap between views. If the "
+                      "keyframe count stops growing, tracking is lost: go back to the "
+                      "last spot that worked and hold still for a second.")
         tips.setObjectName("hint")
         tips.setWordWrap(True)
         l2.addWidget(tips)
@@ -419,8 +452,15 @@ class ScannerWindow(QMainWindow):
         right.addWidget(g3)
 
         g4 = QGroupBox("3 · Finished scanning?")
-        l4 = QHBoxLayout(g4)
-        b = QPushButton("Go to Export && Clean →")
+        l4 = QVBoxLayout(g4)
+        self.finish_btn = primary(QPushButton("✔  Finish: export → clean → mesh → view  (F9)"))
+        self.finish_btn.setShortcut("F9")
+        self.finish_btn.setToolTip("Stops the scan if it is still running, then exports the map "
+                                   "with the current mode's settings, isolates the room/object, "
+                                   "builds an STL and opens the result. (F9)")
+        self.finish_btn.clicked.connect(self._on_finish)
+        l4.addWidget(self.finish_btn)
+        b = QPushButton("Fine-tune export and cleaning →")
         b.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
         l4.addWidget(b)
         right.addWidget(g4)
@@ -688,7 +728,10 @@ class ScannerWindow(QMainWindow):
     # --------------------------------------------------------------- settings
     def _restore_settings(self):
         s = self.settings
-        self.fake_cb.setChecked(s.value("fake_camera", False, type=bool))
+        # The simulated camera is deliberately NOT restored: a test session that
+        # left it on made the real Xtion silently ignored on the next launch.
+        # Use --fake-camera or the Setup tab switch each time.
+        self.fake_cb.setChecked(False)
         self.name_edit.setText(s.value("export_name", "scan", type=str) or "scan")
         preset = s.value("preset", list(core.EXPORT_PRESETS)[0], type=str)
         if preset in [self.preset_combo.itemText(i) for i in range(self.preset_combo.count())]:
@@ -700,16 +743,17 @@ class ScannerWindow(QMainWindow):
         geo = s.value("geometry")
         if geo:
             self.restoreGeometry(geo)
+        self._set_mode(s.value("scan_mode", core.DEFAULT_SCAN_MODE, type=str))
 
     def _save_settings(self):
         s = self.settings
-        s.setValue("fake_camera", self.fake_cb.isChecked())
         s.setValue("export_name", self.name_edit.text())
         s.setValue("preset", self.preset_combo.currentText())
         s.setValue("max_range", self.range_spin.value())
         s.setValue("voxel_mm", self.voxel_spin.value())
         s.setValue("strategy", self.strategy_combo.currentText())
         s.setValue("geometry", self.saveGeometry())
+        s.setValue("scan_mode", self.scan_mode)
 
     # ---------------------------------------------------------------- running
     def _extra_env(self) -> dict:
@@ -771,6 +815,87 @@ class ScannerWindow(QMainWindow):
         n = core.stop_containers()
         self._log(f"[containers] stopped {n}")
         self.statusBar().showMessage(f"Stopped {n} container(s)", 8000)
+
+    # ------------------------------------------------------------ scan modes
+    def _set_mode(self, key: str):
+        if key not in core.SCAN_MODES:
+            key = core.DEFAULT_SCAN_MODE
+        self.scan_mode = key
+        m = core.SCAN_MODES[key]
+        for k, b in self.mode_btns.items():
+            b.setChecked(k == key)
+        self.mode_tips.setText(m["tips"])
+        # keep the Export tab in step with the mode (unless the user chose Custom)
+        if self.preset_combo.currentText() != "Custom":
+            self.preset_combo.setCurrentText(m["export"])
+
+    def _run_then(self, cmd: core.Command, on_ok) -> bool:
+        """Run cmd; when it finishes with exit 0 call on_ok() (one shot)."""
+        def done(code, _cmd):
+            self.runner.finished.disconnect(done)
+            if code == 0:
+                QTimer.singleShot(0, on_ok)
+            else:
+                self._log(f"[finish] stopped: “{cmd.title}” ended with exit {code}")
+        if self._run(cmd):
+            self.runner.finished.connect(done)
+            return True
+        return False
+
+    def _on_scan(self):
+        self._run(core.cmd_map(self.fresh_cb.isChecked(), self.scan_mode))
+
+    def _on_scan_window(self):
+        self._run(core.cmd_gui(self.fresh_cb.isChecked(), self.scan_mode))
+
+    def _scanning(self) -> bool:
+        c = self.runner.cmd
+        return self.runner.busy() and c is not None and len(c.argv) > 1 and \
+            c.argv[1] in ("map", "gui", "multi_slam")
+
+    def _on_finish(self):
+        """One click from a finished (or running) scan to a cleaned cloud + STL."""
+        if self._scanning():
+            self._log("[finish] stopping the scan first (RTAB-Map saves the map)…")
+
+            def after_stop(_code, _cmd):
+                self.runner.finished.disconnect(after_stop)
+                QTimer.singleShot(500, self._on_finish)
+            self.runner.finished.connect(after_stop)
+            self.runner.stop()
+            return
+        if self.runner.busy():
+            QMessageBox.information(self, "Busy", f"“{self.runner.cmd.title}” is still running.")
+            return
+        t = core.read_telemetry()
+        if t["nodes"] == 0:
+            QMessageBox.warning(self, "No map",
+                                "The map is empty, so there is nothing to export.\n\n"
+                                "Start a scan, move the camera until the keyframe count "
+                                "grows, then press Finish.")
+            return
+        m = core.SCAN_MODES[self.scan_mode]
+        preset = core.EXPORT_PRESETS[m["export"]]
+        name = f"{m['name']}_{datetime.now():%Y%m%d_%H%M%S}"
+        self.preset_combo.setCurrentText(m["export"])
+        self.name_edit.setText(name)
+        voxel, strategy = preset["voxel"], preset["strategy"]
+        cloud = core.export_cloud_path(name)
+        cleaned = cloud.with_name(f"{cloud.stem}_{strategy}.ply")
+        stl = core.OUTPUT_DIR / f"{name}.stl"
+        self._log(f"[finish] {m['label']}: export → {strategy} → {stl.name}")
+
+        def view():
+            self._refresh_files()
+            target = cleaned if cleaned.exists() else cloud
+            self._log(f"[finish] done. Cloud: {target.name}   Mesh: {stl.name if stl.exists() else '(none)'}")
+            self.statusBar().showMessage(f"Finished: {target.name} and {stl.name}", 20000)
+            self._view_file(target)
+
+        def clean():
+            self._run_then(core.cmd_isolate(cloud, strategy, voxel, stl), view)
+
+        self._run_then(core.cmd_export(name, preset["max_range"], voxel), clean)
 
     # --------------------------------------------------------------- handlers
     def _on_export(self):
@@ -954,7 +1079,7 @@ class ScannerWindow(QMainWindow):
         if not t["db_exists"]:
             self.map_label.setText("Map: none yet")
         else:
-            self.map_label.setText(f"Map: {t['nodes']} keyframes · {t['loop_closures']} loop closures · "
+            self.map_label.setText(f"Map: {t['nodes']} nodes · {t['loop_closures']} loops · "
                                    f"{t['map_size_mb']} MB")
         self.stat_labels["nodes"].setText(str(t["nodes"]))
         self.stat_labels["links"].setText(str(t["links"]))
@@ -1046,10 +1171,22 @@ class ScriptDriver(QObject):
                 delay = int(float(arg) * 1000)
             elif verb == "preview":
                 self._say("preview -> " + str(w._run(core.cmd_preview())))
+            elif verb == "mode":
+                w._set_mode(arg)
+                self._say(f"mode -> {w.scan_mode}")
             elif verb == "scan":
-                self._say("scan -> " + str(w._run(core.cmd_map(w.fresh_cb.isChecked()))))
+                self._say("scan -> " + str(w._run(core.cmd_map(w.fresh_cb.isChecked(), w.scan_mode))))
             elif verb == "rtabmap":
-                self._say("rtabmap window -> " + str(w._run(core.cmd_gui(w.fresh_cb.isChecked()))))
+                self._say("rtabmap window -> " + str(w._run(core.cmd_gui(w.fresh_cb.isChecked(), w.scan_mode))))
+            elif verb == "finish":
+                w._on_finish()
+                self._say("finish requested")
+            elif verb == "waitidle":
+                if w.runner.busy() or w.runner.cmd is not None:
+                    self.steps.insert(0, step)   # poll again
+                    delay = 1000
+                else:
+                    self._say("idle")
             elif verb == "stop":
                 w._on_stop()
                 self._say("stop requested")

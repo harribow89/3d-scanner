@@ -21,6 +21,14 @@ import open3d as o3d
 path = sys.argv[1] if len(sys.argv) > 1 else "output/scan_20260426_001324_cloud_cloud.ply"
 
 print(f"Loading {path} ...")
+if path.lower().endswith((".stl", ".obj")):
+    mesh = o3d.io.read_triangle_mesh(path)
+    mesh.compute_vertex_normals()
+    print(f"  mesh: {len(mesh.vertices):,} vertices, {len(mesh.triangles):,} triangles")
+    print("Opening viewer — drag to rotate, scroll to zoom, Q to quit.")
+    o3d.visualization.draw_geometries([mesh], window_name=path, width=1280, height=800,
+                                      mesh_show_back_face=True)
+    sys.exit(0)
 pcd = o3d.io.read_point_cloud(path)
 n = len(pcd.points)
 print(f"  {n:,} points loaded")

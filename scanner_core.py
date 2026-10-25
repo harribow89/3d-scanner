@@ -80,6 +80,43 @@ EXPORT_PRESETS = {
     "Small object, fine detail": {"voxel": 0.004, "max_range": 1.2, "strategy": "largest_cluster"},
 }
 
+# The two things people actually scan. Each mode sets BOTH the RTAB-Map tuning
+# used while scanning (passed to the launcher as RTAB_TUNE / ODOM_TUNE env) and
+# the export/clean preset used when you press Finish.
+#
+# Remember the split: rtabmap_args (RTAB_TUNE) go to the SLAM node, odom_args
+# (ODOM_TUNE) to rgbd_odometry. Odom/* in RTAB_TUNE crashes the SLAM node.
+# Odometry keeps the full depth range in both modes: when you walk around an
+# object, the room behind it is what keeps tracking alive.
+SCAN_MODES = {
+    "room": {
+        "label": "Room / space",
+        "rtab_tune": ("--Vis/MaxDepth 3.5 --Vis/MinInliers 15 --RGBD/LinearUpdate 0.05 "
+                      "--RGBD/AngularUpdate 0.05 --Rtabmap/DetectionRate 2 "
+                      "--RGBD/NeighborLinkRefining true --Mem/SaveDepth16Format true"),
+        "odom_tune": "--Vis/MaxDepth 3.5 --Vis/MinInliers 15 --Odom/ResetCountdown 5",
+        "export": "Room / scene (default)",
+        "name": "room",
+        "tips": ("Stand in the middle and turn slowly, then walk the edges. Keep the "
+                 "camera 0.8–3.5 m from walls, sweep floor and ceiling edges, and finish "
+                 "back where you started so RTAB-Map closes the loop."),
+    },
+    "object": {
+        "label": "Object",
+        "rtab_tune": ("--Vis/MinInliers 12 --RGBD/LinearUpdate 0.02 --RGBD/AngularUpdate 0.03 "
+                      "--Rtabmap/DetectionRate 3 --RGBD/NeighborLinkRefining true "
+                      "--Mem/SaveDepth16Format true"),
+        "odom_tune": "--Vis/MaxDepth 3.5 --Vis/MinInliers 12 --Odom/ResetCountdown 5",
+        "export": "Single object on a table",
+        "name": "object",
+        "tips": ("Put the object on a table with some clutter or a newspaper around it "
+                 "(the Xtion tracks texture, not the object). Keep it 0.6–1.2 m away — "
+                 "the Xtion sees nothing closer than ~0.5 m — and walk a slow full circle, "
+                 "then a second circle higher up looking down."),
+    },
+}
+DEFAULT_SCAN_MODE = "room"
+
 LIVE_FRESH_SECONDS = 3.0   # preview status older than this is shown as stale
 
 FAKE_CAMERA_ENV = "SCANNER_FAKE_CAMERA"   # =1 → simulated RGB-D camera (tests/fake_camera.py)
@@ -207,6 +244,32 @@ def detect_xtions(sysfs: Path = Path("/sys/bus/usb/devices")) -> list[Xtion]:
     return found
 
 
+def xtion_audio_bound(sysfs: Path = Path("/sys/bus/usb/devices")) -> list[str]:
+    """Xtion microphone interfaces (class 01) that still have a USB-audio driver.
+    snd-usb-audio probing them knocks the sensor off the bus; the launcher
+    detaches them before every camera mode."""
+    bound = []
+    try:
+        entries = sorted(os.listdir(sysfs))
+    except OSError:
+        return bound
+    for name in entries:
+        if ":" not in name:
+            continue
+        d = Path(sysfs) / name
+        try:
+            if (d / "bInterfaceClass").read_text().strip() != "01":
+                continue
+            parent = Path(sysfs) / name.split(":")[0]
+            if (parent / "idVendor").read_text().strip().lower() != XTION_VENDOR:
+                continue
+            if (d / "authorized").read_text().strip() == "1" and (d / "driver").exists():
+                bound.append(name)
+        except OSError:
+            continue
+    return bound
+
+
 def fake_camera_enabled(env: Optional[dict] = None) -> bool:
     env = os.environ if env is None else env
     return env.get(FAKE_CAMERA_ENV, "") == "1"
@@ -266,6 +329,15 @@ def run_doctor(full: bool = True) -> list[Check]:
                             "Plug the Xtion into a USB 2/3 port on this machine. "
                             "Camera modes refuse to start without one (tick 'simulated "
                             "camera' on the Setup tab to try the app without hardware)."))
+
+    if cams:
+        bound = xtion_audio_bound()
+        checks.append(Check("Xtion microphone driver", not bound,
+                            "detached" if not bound else "snd-usb-audio attached to " + ", ".join(bound),
+                            "Harmless until it knocks the camera off USB. Every camera mode "
+                            "detaches it automatically; to make it permanent: sudo cp "
+                            "udev/56-xtion-no-audio.rules /etc/udev/rules.d/ && "
+                            "sudo udevadm control --reload-rules", required=False))
 
     disp = os.environ.get("DISPLAY", "")
     checks.append(Check("X display", bool(disp), disp or "DISPLAY not set",
@@ -436,14 +508,22 @@ def cmd_snap(out: Path = OUTPUT_DIR / "single_frame.ply") -> Command:
     return Command(_launcher("snap", rel(out)), "Capturing one frame", needs_camera=1)
 
 
-def cmd_map(fresh: bool = True) -> Command:
-    return Command(_launcher("map"), "Scanning (RTAB-Map SLAM)", long_running=True,
-                   needs_camera=1, env={"MAP_FRESH": "1" if fresh else "0"})
+def scan_env(fresh: bool, mode: str = DEFAULT_SCAN_MODE) -> dict:
+    m = SCAN_MODES.get(mode, SCAN_MODES[DEFAULT_SCAN_MODE])
+    return {"MAP_FRESH": "1" if fresh else "0",
+            "RTAB_TUNE": m["rtab_tune"], "ODOM_TUNE": m["odom_tune"]}
 
 
-def cmd_gui(fresh: bool = True) -> Command:
-    return Command(_launcher("gui"), "RTAB-Map window (SLAM + 3D view)", long_running=True,
-                   needs_camera=1, env={"MAP_FRESH": "1" if fresh else "0"})
+def cmd_map(fresh: bool = True, mode: str = DEFAULT_SCAN_MODE) -> Command:
+    label = SCAN_MODES.get(mode, SCAN_MODES[DEFAULT_SCAN_MODE])["label"]
+    return Command(_launcher("map"), f"Scanning — {label} (RTAB-Map SLAM)", long_running=True,
+                   needs_camera=1, env=scan_env(fresh, mode))
+
+
+def cmd_gui(fresh: bool = True, mode: str = DEFAULT_SCAN_MODE) -> Command:
+    label = SCAN_MODES.get(mode, SCAN_MODES[DEFAULT_SCAN_MODE])["label"]
+    return Command(_launcher("gui"), f"Scanning — {label} with the RTAB-Map 3D window",
+                   long_running=True, needs_camera=1, env=scan_env(fresh, mode))
 
 
 def cmd_viz() -> Command:

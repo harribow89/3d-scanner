@@ -71,6 +71,18 @@ class CommandBuilderTests(unittest.TestCase):
         self.assertEqual(core.cmd_map().needs_camera, 1)
         self.assertEqual(core.cmd_multi_slam().needs_camera, 2)
 
+    def test_scan_modes_set_tuning_env(self):
+        for key, m in core.SCAN_MODES.items():
+            c = core.cmd_map(True, key)
+            self.assertEqual(c.env["RTAB_TUNE"], m["rtab_tune"])
+            self.assertEqual(c.env["ODOM_TUNE"], m["odom_tune"])
+            self.assertIn(m["export"], core.EXPORT_PRESETS)
+            # Odom/* in the SLAM node's args crashes it (ParameterNotDeclared)
+            self.assertNotIn("Odom/", m["rtab_tune"], key)
+            self.assertEqual(core.cmd_gui(False, key).env["MAP_FRESH"], "0")
+        self.assertEqual(core.cmd_map(True, "bogus").env["RTAB_TUNE"],
+                         core.SCAN_MODES[core.DEFAULT_SCAN_MODE]["rtab_tune"])
+
     def test_shell_preview_quotes(self):
         c = core.cmd_view(core.OUTPUT_DIR / "a b.ply")
         self.assertIn("'", c.shell_preview())
@@ -100,6 +112,23 @@ class XtionDetectionTests(unittest.TestCase):
         self.assertEqual(cams[0].name, "Xtion PRO LIVE")
         self.assertEqual(cams[1].name, "Carmine 1.09")
         self.assertIn("2 cameras", core.camera_summary(cams))
+
+    def test_xtion_audio_bound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_dev(root, "1-7", "1d27", "0601", 1, 20)
+            self.make_dev(root, "1-2", "046d", "c52b", 1, 2)
+            for name, cls, auth, drv in (("1-7:1.0", "ff", "1", False),
+                                         ("1-7:1.1", "01", "1", True),
+                                         ("1-7:1.2", "01", "0", False),
+                                         ("1-2:1.0", "01", "1", True)):
+                d = root / name
+                d.mkdir()
+                (d / "bInterfaceClass").write_text(cls + "\n")
+                (d / "authorized").write_text(auth + "\n")
+                if drv:
+                    (d / "driver").mkdir()
+            self.assertEqual(core.xtion_audio_bound(root), ["1-7:1.1"])
 
     def test_missing_sysfs_is_empty(self):
         self.assertEqual(core.detect_xtions(Path("/nonexistent/sysfs")), [])

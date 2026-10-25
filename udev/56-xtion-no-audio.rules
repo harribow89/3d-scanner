@@ -1,0 +1,13 @@
+# ASUS Xtion PRO LIVE / PrimeSense (vendor 1d27): keep the USB-audio driver off
+# the sensor's built-in microphones.
+#
+# When snd-usb-audio + PipeWire probe the audio streaming interface (set sample
+# rate on ep 0x84) the sensor firmware hits a USB protocol error (-71), drops
+# off the bus and does not re-enumerate until it is physically re-plugged.
+# Seen 2026-10-26 on kernel 7.0 / Raptor Lake xHCI. Interface class 01 = audio;
+# the depth/colour interface (vendor class ff) is untouched.
+#
+# The launcher already detaches these interfaces at runtime before each camera
+# mode. Installing this rule makes it permanent:
+#   sudo cp udev/56-xtion-no-audio.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_interface", ATTRS{idVendor}=="1d27", ATTR{bInterfaceClass}=="01", ATTR{authorized}="0"
