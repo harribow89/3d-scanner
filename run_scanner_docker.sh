@@ -14,7 +14,7 @@
 #   ./run_scanner_docker.sh map                  # headless RTAB-Map SLAM, until Stop (MAP_FRESH=0 to continue a map)
 #   ./run_scanner_docker.sh gui                  # SLAM + the rtabmap_viz 3D window; close it to finish
 #   ./run_scanner_docker.sh viz                  # camera + RTAB-Map + RViz live cloud
-#   ./run_scanner_docker.sh export [db] [out.ply] [max_range_m] [voxel_m]   # map -> output/<name>_cloud.ply
+#   ./run_scanner_docker.sh export [db] [out.ply] [max_range_m] [voxel_m] [decimation]   # map -> output/<name>_cloud.ply
 #   ./run_scanner_docker.sh multi                # all Xtions in cameras.json + RViz (calibrated)
 #   ./run_scanner_docker.sh multi_slam           # EXPERIMENTAL 3-camera SLAM
 #   ./run_scanner_docker.sh overlap              # multi-cam: check adjacent-camera overlap
@@ -423,19 +423,24 @@ case "$cmd" in
     # rtabmap-export takes a base NAME (+ --output_dir) and writes <dir>/<name>_cloud.ply.
     require_image
     db_h="${2:-rtabmap.db}"; out_h="${3:-output/scan.ply}"
-    max_range="${4:-4.0}"; voxel="${5:-0.012}"
+    max_range="${4:-4.0}"; voxel="${5:-0.005}"
+    # rtabmap-export's own default is --decimation 4: every 640x480 depth frame
+    # becomes 160x120 points before voxelling, which is what made the clouds
+    # blocky. 1 = full Xtion resolution (objects), 2 = rooms.
+    decim="${6:-2}"
     db_host="$db_h"; [[ "$db_host" != /* ]] && db_host="$HERE/$db_host"
     if [ ! -s "$db_host" ]; then echo "ERROR: no map database at $db_host — run a scan first." >&2; exit 4; fi
     n=$(db_nodes "$db_host")
     if [ "$n" = "0" ]; then echo "ERROR: the map in $db_host is empty (0 nodes) — scan something first." >&2; exit 4; fi
     db_c=$(to_container_path "$db_h"); out_c=$(to_container_path "$out_h")
     out_dir="$(dirname "$out_c")"; out_name="$(basename "$out_c" .ply)"
-    echo ">> exporting $n-node map: max range ${max_range} m, voxel ${voxel} m"
+    echo ">> exporting $n-node map: max range ${max_range} m, voxel ${voxel} m, depth decimation ${decim}"
     run_container export -e DB="$db_c" -e DIR="$out_dir" -e NM="$out_name" \
-        -e MR="$max_range" -e VX="$voxel" -- '
+        -e MR="$max_range" -e VX="$voxel" -e DEC="$decim" -- '
       source /opt/ros/jazzy/setup.bash
       mkdir -p "$DIR"
-      rtabmap-export --cloud --max_range "$MR" --voxel "$VX" --output "$NM" --output_dir "$DIR" "$DB"'
+      rtabmap-export --cloud --decimation "$DEC" --min_range 0.4 --max_range "$MR" --voxel "$VX" \
+        --output "$NM" --output_dir "$DIR" "$DB"'
     out_host="${out_h%.ply}_cloud.ply"; [[ "$out_host" != /* ]] && out_host="$HERE/$out_host"
     if [ -s "$out_host" ]; then echo "Exported: $out_host"; else echo "ERROR: export produced no file at $out_host" >&2; exit 4; fi
     ;;

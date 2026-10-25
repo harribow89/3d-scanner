@@ -74,10 +74,15 @@ ISOLATION_STRATEGIES = [
 ]
 
 # Presets applied by the Export tab. voxel and max_range in metres.
+# decimation: depth-image step used by rtabmap-export (its default 4 made every
+# cloud blocky; 1 = full 640x480 Xtion resolution).
 EXPORT_PRESETS = {
-    "Room / scene (default)": {"voxel": 0.012, "max_range": 4.0, "strategy": "raw_clean"},
-    "Single object on a table": {"voxel": 0.006, "max_range": 1.8, "strategy": "tabletop_object"},
-    "Small object, fine detail": {"voxel": 0.004, "max_range": 1.2, "strategy": "largest_cluster"},
+    "Room / scene (default)": {"voxel": 0.005, "max_range": 4.0, "decimation": 2,
+                               "strategy": "raw_clean"},
+    "Single object on a table": {"voxel": 0.002, "max_range": 1.6, "decimation": 1,
+                                 "strategy": "tabletop_object"},
+    "Small object, fine detail": {"voxel": 0.0015, "max_range": 1.2, "decimation": 1,
+                                  "strategy": "largest_cluster"},
 }
 
 # The two things people actually scan. Each mode sets BOTH the RTAB-Map tuning
@@ -535,10 +540,11 @@ def export_cloud_path(stem: str) -> Path:
     return OUTPUT_DIR / f"{stem}_cloud.ply"
 
 
-def cmd_export(stem: str = "scan", max_range_m: float = 4.0, voxel_m: float = 0.012,
-               db: Path = DB_PATH) -> Command:
+def cmd_export(stem: str = "scan", max_range_m: float = 4.0, voxel_m: float = 0.005,
+               db: Path = DB_PATH, decimation: int = 2) -> Command:
     out = OUTPUT_DIR / f"{stem}.ply"
-    return Command(_launcher("export", rel(db), rel(out), f"{max_range_m:.2f}", f"{voxel_m:.4f}"),
+    return Command(_launcher("export", rel(db), rel(out), f"{max_range_m:.2f}", f"{voxel_m:.4f}",
+                             str(max(1, int(decimation)))),
                    f"Exporting {export_cloud_path(stem).name}")
 
 
@@ -553,7 +559,7 @@ def cmd_isolate(ply: Path, strategy: str, voxel_m: float,
             "--strategy", strategy, "--voxel", f"{voxel_m:.4f}"]
     title = f"Cleaning {Path(ply).name} ({strategy})"
     if stl_out is not None:
-        argv += ["--mesh-output", str(stl_out)]
+        argv += ["--mesh-output", str(stl_out), "--mesh-voxel", f"{voxel_m:.4f}"]
         title = f"Building {Path(stl_out).name} ({strategy})"
     return Command(argv, title)
 
