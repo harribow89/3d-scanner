@@ -596,6 +596,126 @@ def cmd_stop() -> Command:
     return Command(_launcher("stop"), "Stopping scanner containers")
 
 
+# ------------------------------------------------------------------- progress
+# rtabmap-export prints a start and an end line per stage; percentages are
+# weighted by how long each stage took on a real 469-node map (voxelling is
+# the slow one). Matched with startswith() on the line.
+EXPORT_STAGES = [
+    (">> exporting", 1, "Starting the export container"),
+    ("Opening database", 3, "Opening the map database"),
+    ("Optimizing the map", 5, "Optimizing the pose graph"),
+    ("Create and assemble the clouds...", 8, "Building the cloud from every keyframe"),
+    ("Create and assemble the clouds... done", 35, "Clouds assembled"),
+    ("Voxel grid filtering", 36, "Voxel filtering (slowest step)"),
+    ("Voxel grid filtering of the assembled cloud.... done", 75, "Voxel filtering done"),
+    ("Computing normals", 76, "Computing normals"),
+    ("Computing normals of the assembled cloud... done", 85, "Normals done"),
+    ("Adjust normals", 86, "Orienting normals"),
+    ("Saving ", 94, "Writing the PLY file"),
+    ("Exported:", 100, "Export finished"),
+]
+
+
+def parse_progress(line: str, stages=None) -> Optional[tuple[int, str]]:
+    """(percent, label) from one output line, or None.
+
+    Understands the explicit `PROGRESS <pct> <label>` lines that
+    point_cloud_tools.py prints, and rtabmap-export's stage lines."""
+    s = line.strip()
+    if s.startswith("PROGRESS "):
+        parts = s.split(" ", 2)
+        try:
+            return max(0, min(100, int(float(parts[1])))), (parts[2] if len(parts) > 2 else "")
+        except ValueError:
+            return None
+    best = None
+    for prefix, pct, label in (stages if stages is not None else EXPORT_STAGES):
+        # the longest matching prefix wins ("…clouds... done" over "…clouds...")
+        if s.startswith(prefix) and (best is None or len(prefix) > best[0]):
+            best = (len(prefix), pct, label)
+    return (best[1], best[2]) if best else None
+
+
+def _children_map() -> dict[int, list[int]]:
+    kids: dict[int, list[int]] = {}
+    for d in os.listdir("/proc"):
+        if not d.isdigit():
+            continue
+        try:
+            with open(f"/proc/{d}/stat") as fh:
+                st = fh.read()
+            ppid = int(st[st.rindex(")") + 2:].split()[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        kids.setdefault(ppid, []).append(int(d))
+    return kids
+
+
+def tree_cpu_ticks(roots: list[int]) -> int:
+    """utime+stime clock ticks of every process under `roots` (inclusive).
+    Polled twice, the difference says whether anything is still working —
+    the point is telling 'busy in a long Open3D call' from 'hung/crashed'."""
+    kids = _children_map()
+    seen, stack, total = set(), [p for p in roots if p], 0
+    while stack:
+        p = stack.pop()
+        if p in seen:
+            continue
+        seen.add(p)
+        try:
+            with open(f"/proc/{p}/stat") as fh:
+                st = fh.read()
+            f = st[st.rindex(")") + 2:].split()
+            total += int(f[11]) + int(f[12])
+        except (OSError, ValueError, IndexError):
+            pass
+        stack.extend(kids.get(p, []))
+    return total
+
+
+def mem_available_gb(meminfo: str = "/proc/meminfo") -> Optional[float]:
+    try:
+        with open(meminfo) as fh:
+            for line in fh:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / 1048576.0
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def describe_exit(code: int, crashed: bool = False) -> str:
+    """Plain words for a job's exit code (137 / SIGKILL is almost always the
+    kernel's out-of-memory killer on a big cloud or mesh)."""
+    if code == 0:
+        return "finished"
+    if code in (137, -9, 9) or (crashed and code in (-3, 0)):
+        return "killed — most likely ran out of memory (try a coarser Detail / bigger voxel)"
+    if code in (139, -11, 11):
+        return "crashed (segmentation fault) — a corrupt map? try Setup → Clear the map database"
+    if code == 4:
+        return "nothing to export — the map is empty"
+    if code == 3:
+        return "no camera found"
+    return f"failed (exit {code})"
+
+
+def container_pids(name_prefix: str = "scanner-") -> list[int]:
+    """Host PIDs of our running containers' init processes (their work runs
+    under containerd, not under the launcher, so it is not in our own tree)."""
+    pids = []
+    for c in running_containers():
+        if not c["name"].startswith(name_prefix):
+            continue
+        try:
+            r = _run(docker_prefix() + ["inspect", "-f", "{{.State.Pid}}", c["id"]], timeout=10)
+            if r.returncode == 0 and r.stdout.strip().isdigit():
+                pids.append(int(r.stdout.strip()))
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+    return pids
+
+
 # ---------------------------------------------------------------------- files
 def list_outputs() -> list[Path]:
     """PLY/STL files in output/, newest last."""

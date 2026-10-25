@@ -42,7 +42,8 @@ from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox,
                                QDoubleSpinBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox,
-                               QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
+                               QPlainTextEdit, QProgressBar, QPushButton, QScrollArea,
+                               QSizePolicy, QSpinBox,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
                                QWidget)
 
@@ -61,6 +62,15 @@ QPushButton[class="primary"]:hover { background: #1f6fe0; }
 QPushButton[class="primary"]:disabled { background: #8fb4ea; }
 QPushButton#stop { background: #d9534f; color: white; font-weight: 700; border: none; border-radius: 4px; padding: 8px 18px; }
 QPushButton#stop:disabled { background: #c9a1a0; }
+QFrame#progress { background: #eef3fb; border: 1px solid #b6c8e6; border-radius: 6px; }
+QFrame#progress[state="failed"] { background: #fdecea; border-color: #f0a19c; }
+QFrame#progress[state="stuck"] { background: #fff4e5; border-color: #f0c27a; }
+QFrame#progress[state="done"] { background: #eaf6ec; border-color: #9fd5a8; }
+QLabel#progstep { font-weight: 600; }
+QProgressBar { border: 1px solid #9aa4ae; border-radius: 4px; text-align: center; background: white; }
+QProgressBar::chunk { background: #2d7ff9; border-radius: 3px; }
+QFrame#progress[state="failed"] QProgressBar::chunk { background: #d9534f; }
+QFrame#progress[state="done"] QProgressBar::chunk { background: #2ea043; }
 QPushButton#mode { font-size: 14px; font-weight: 600; border: 2px solid #8b949e; border-radius: 6px; }
 QPushButton#mode:checked { background: #238636; color: white; border-color: #238636; }
 QLabel#hint { color: #555; }
@@ -84,6 +94,7 @@ class Runner(QObject):
         self.cmd: core.Command | None = None
         self._buf = b""
         self._stopping = False
+        self.crashed = False
 
     def busy(self) -> bool:
         return self.proc is not None and self.proc.state() != QProcess.ProcessState.NotRunning
@@ -140,6 +151,7 @@ class Runner(QObject):
         if self._buf:
             self.line.emit(self._buf.decode("utf-8", "replace"))
             self._buf = b""
+        self.crashed = status == QProcess.ExitStatus.CrashExit and not self._stopping
         if self._stopping or status == QProcess.ExitStatus.CrashExit:
             code = -2 if self._stopping else code or -3
         cmd, self.cmd = self.cmd, None
@@ -166,6 +178,44 @@ class TelemetryThread(QThread):
         while self._run:
             self.telemetry.emit(core.read_telemetry())
             self.cameras.emit(core.detect_xtions())
+            for _ in range(15):
+                if not self._run:
+                    break
+                time.sleep(0.1)
+
+    def stop(self):
+        self._run = False
+
+
+class ActivityThread(QThread):
+    """While a job runs, measures how much CPU its processes are burning —
+    the launcher's own tree plus our Docker containers (their processes hang
+    off containerd, not the launcher). Emits CPU % (100 = one full core)."""
+    cpu = Signal(float)
+
+    def __init__(self):
+        super().__init__()
+        self._run = True
+        self.root_pid = 0
+        self.watch_containers = False
+
+    def run(self):
+        hz = os.sysconf("SC_CLK_TCK")
+        last_ticks, last_t = None, None
+        cont_pids, cont_checked = [], 0.0
+        while self._run:
+            if not self.root_pid:
+                last_ticks = None
+                time.sleep(0.3)
+                continue
+            now = time.time()
+            if self.watch_containers and now - cont_checked > 4:
+                cont_pids = core.container_pids()
+                cont_checked = now
+            ticks = core.tree_cpu_ticks([self.root_pid] + (cont_pids if self.watch_containers else []))
+            if last_ticks is not None and now > last_t:
+                self.cpu.emit(max(0.0, (ticks - last_ticks) / hz / (now - last_t) * 100.0))
+            last_ticks, last_t = ticks, now
             for _ in range(15):
                 if not self._run:
                     break
@@ -282,10 +332,18 @@ class ScannerWindow(QMainWindow):
 
         self.runner = Runner(self)
         self.runner.line.connect(self._log)
+        self.runner.line.connect(self._on_progress_line)
         self.runner.started.connect(self._on_started)
         self.runner.finished.connect(self._on_finished)
 
         self._build_ui()
+
+        self.activity = ActivityThread()
+        self.activity.cpu.connect(self._on_cpu)
+        self.activity.start()
+        self.progress_timer = QTimer(self)
+        self.progress_timer.timeout.connect(self._tick_progress)
+        self.progress_timer.start(1000)
         self._restore_settings()
 
         self.poller = TelemetryThread()
@@ -341,6 +399,36 @@ class ScannerWindow(QMainWindow):
         self.stop_btn.clicked.connect(self._on_stop)
         h.addWidget(self.stop_btn)
         root.addWidget(header)
+
+        # ---- job progress (export / clean / mesh / any finite job)
+        self.prog_frame = QFrame()
+        self.prog_frame.setObjectName("progress")
+        pv = QVBoxLayout(self.prog_frame)
+        pv.setContentsMargins(12, 6, 12, 6)
+        pv.setSpacing(3)
+        top = QHBoxLayout()
+        self.prog_step = QLabel("")
+        self.prog_step.setObjectName("progstep")
+        top.addWidget(self.prog_step, 1)
+        self.prog_activity = QLabel("")
+        top.addWidget(self.prog_activity)
+        pv.addLayout(top)
+        self.prog_bar = QProgressBar()
+        self.prog_bar.setRange(0, 100)
+        self.prog_bar.setTextVisible(True)
+        self.prog_bar.setMinimumHeight(22)
+        pv.addWidget(self.prog_bar)
+        self.prog_detail = QLabel("")
+        self.prog_detail.setObjectName("hint")
+        pv.addWidget(self.prog_detail)
+        self.prog_frame.hide()
+        root.addWidget(self.prog_frame)
+        self._job_t0 = 0.0
+        self._last_out_t = 0.0
+        self._stage = ""
+        self._cpu = None
+        self._chain_step = ""       # "Step 2 of 3 · Cleaning + mesh" during Finish
+        self._prog_hide_at = 0.0
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_scan_tab(), "Scan")
@@ -798,8 +886,139 @@ class ScannerWindow(QMainWindow):
         self.run_label.setStyleSheet(f"color: {ORANGE};")
         self.stop_btn.setEnabled(True)
         self.statusBar().showMessage(cmd.title)
+        self._progress_begin(cmd)
+
+    # ------------------------------------------------------------- progress
+    @staticmethod
+    def _reports_progress(cmd: core.Command) -> bool:
+        """Commands whose output parse_progress understands (a real % bar);
+        anything else finite gets a moving 'busy' bar + the activity readout."""
+        a = cmd.argv
+        return (len(a) > 1 and a[1] == "export") or any(x.endswith("point_cloud_tools.py") for x in a)
+
+    def _set_prog_state(self, state: str):
+        self.prog_frame.setProperty("state", state)
+        self.prog_frame.style().unpolish(self.prog_frame)
+        self.prog_frame.style().polish(self.prog_frame)
+        for w in self.prog_frame.findChildren(QWidget):
+            w.style().unpolish(w)
+            w.style().polish(w)
+
+    def _progress_begin(self, cmd: core.Command):
+        if cmd.long_running:
+            self.prog_frame.hide()          # scans/previews have their own live readouts
+            return
+        now = time.time()
+        self._job_t0 = self._last_out_t = now
+        self._cpu = None
+        self._prog_hide_at = 0.0
+        self._stage = "Starting…"
+        self._set_prog_state("")
+        self.prog_step.setText((self._chain_step + "  ·  " if self._chain_step else "") + cmd.title)
+        if self._reports_progress(cmd):
+            self.prog_bar.setRange(0, 100)
+            self.prog_bar.setValue(0)
+            self.prog_bar.setFormat("%p%")
+        else:
+            self.prog_bar.setRange(0, 0)    # animated 'busy' bar
+        self.prog_activity.setText("")
+        self.prog_detail.setText(self._stage)
+        self.prog_frame.show()
+        self.activity.watch_containers = len(cmd.argv) > 1 and cmd.argv[0] == str(core.LAUNCHER)
+        self.activity.root_pid = int(self.runner.proc.processId() or 0) if self.runner.proc else 0
+
+    def _on_progress_line(self, line: str):
+        if not self.prog_frame.isVisible() or not self.runner.busy():
+            return
+        self._last_out_t = time.time()
+        p = core.parse_progress(line)
+        if p is None:
+            return
+        pct, label = p
+        if self.prog_bar.maximum() > 0 and pct >= self.prog_bar.value():
+            self.prog_bar.setValue(pct)
+        if label:
+            self._stage = label
+        self._tick_progress()
+
+    def _on_cpu(self, pct: float):
+        self._cpu = pct
+
+    @staticmethod
+    def _fmt_secs(s: float) -> str:
+        s = int(s)
+        return f"{s // 60}:{s % 60:02d}"
+
+    def _tick_progress(self):
+        if not self.prog_frame.isVisible():
+            return
+        now = time.time()
+        if not self.runner.busy():
+            if self._prog_hide_at and now >= self._prog_hide_at and not self._chain_step:
+                self.prog_frame.hide()
+            return
+        elapsed = now - self._job_t0
+        quiet = now - self._last_out_t
+        self.prog_detail.setText(f"{self._stage}   ·   {self._fmt_secs(elapsed)} elapsed   ·   "
+                                 f"last output {self._fmt_secs(quiet)} ago")
+        mem = core.mem_available_gb()
+        if mem is not None:
+            self.prog_detail.setText(self.prog_detail.text() + f"   ·   RAM free {mem:.1f} GB")
+            if mem < 1.0:
+                self.prog_activity.setText(f"⚠ RAM almost full ({mem:.1f} GB free) — "
+                                           "this job may be killed")
+                self.prog_activity.setStyleSheet(f"color: {RED}; font-weight: 700;")
+                return
+        cpu = self._cpu
+        if cpu is None:
+            self.prog_activity.setText("checking activity…")
+            self.prog_activity.setStyleSheet(f"color: {GREY};")
+        elif cpu >= 5:
+            self.prog_activity.setText(f"● working — CPU {cpu:.0f} %")
+            self.prog_activity.setStyleSheet(f"color: {GREEN}; font-weight: 600;")
+            if self.prog_frame.property("state") == "stuck":
+                self._set_prog_state("")
+        elif quiet > 45:
+            self.prog_activity.setText(f"▲ no activity for {self._fmt_secs(quiet)} — may be stuck "
+                                       "(Stop is safe)")
+            self.prog_activity.setStyleSheet(f"color: {ORANGE}; font-weight: 600;")
+            if self.prog_frame.property("state") != "stuck":
+                self._set_prog_state("stuck")
+        else:
+            self.prog_activity.setText(f"○ waiting — CPU {cpu:.0f} %")
+            self.prog_activity.setStyleSheet(f"color: {GREY};")
+
+    def _progress_end(self, code: int, cmd: core.Command | None):
+        self.activity.root_pid = 0
+        if cmd is None or cmd.long_running or not self.prog_frame.isVisible():
+            return
+        elapsed = self._fmt_secs(time.time() - self._job_t0)
+        if self.prog_bar.maximum() == 0:
+            self.prog_bar.setRange(0, 100)
+        if code == 0:
+            self.prog_bar.setValue(100)
+            self._set_prog_state("done")
+            self.prog_activity.setText("✔ finished")
+            self.prog_activity.setStyleSheet(f"color: {GREEN}; font-weight: 600;")
+            self.prog_detail.setText(f"Done in {elapsed}")
+            self._prog_hide_at = time.time() + 12
+        elif code == -2:
+            self._set_prog_state("stuck")
+            self.prog_activity.setText("■ stopped")
+            self.prog_activity.setStyleSheet(f"color: {GREY}; font-weight: 600;")
+            self.prog_detail.setText(f"Stopped by you after {elapsed}, during: {self._stage}")
+            self._prog_hide_at = time.time() + 12
+        else:
+            why = core.describe_exit(code, getattr(self.runner, "crashed", False))
+            self._set_prog_state("failed")
+            self.prog_activity.setText(f"✘ {why.split(' — ')[0]}")
+            self.prog_activity.setStyleSheet(f"color: {RED}; font-weight: 700;")
+            self.prog_detail.setText(f"Stopped working after {elapsed}, during: {self._stage}. "
+                                     f"{why[0].upper() + why[1:]}. The Log tab has the details.")
+            self._prog_hide_at = 0.0          # keep a failure on screen
 
     def _on_finished(self, code: int, cmd: core.Command | None):
+        self._progress_end(code, cmd)
         title = cmd.title if cmd else "command"
         if code == 0:
             text, colour, msg = "Idle", GREY, f"Finished: {title}"
@@ -841,17 +1060,21 @@ class ScannerWindow(QMainWindow):
         if self.preset_combo.currentText() != "Custom":
             self.preset_combo.setCurrentText(m["export"])
 
-    def _run_then(self, cmd: core.Command, on_ok) -> bool:
-        """Run cmd; when it finishes with exit 0 call on_ok() (one shot)."""
+    def _run_then(self, cmd: core.Command, on_ok, step: str = "") -> bool:
+        """Run cmd; when it finishes with exit 0 call on_ok() (one shot).
+        `step` ("Step 1 of 2 · Export") labels the progress panel."""
         def done(code, _cmd):
             self.runner.finished.disconnect(done)
             if code == 0:
                 QTimer.singleShot(0, on_ok)
             else:
+                self._chain_step = ""
                 self._log(f"[finish] stopped: “{cmd.title}” ended with exit {code}")
+        self._chain_step = step
         if self._run(cmd):
             self.runner.finished.connect(done)
             return True
+        self._chain_step = ""
         return False
 
     def _on_scan(self):
@@ -898,6 +1121,9 @@ class ScannerWindow(QMainWindow):
         self._log(f"[finish] {m['label']}: export → {strategy} → {stl.name}")
 
         def view():
+            self._chain_step = ""
+            self._prog_hide_at = time.time() + 15
+            self.prog_step.setText(f"Finished — {m['label']} scan exported, cleaned and meshed")
             self._refresh_files()
             target = cleaned if cleaned.exists() else cloud
             self._log(f"[finish] done. Cloud: {target.name}   Mesh: {stl.name if stl.exists() else '(none)'}")
@@ -905,10 +1131,12 @@ class ScannerWindow(QMainWindow):
             self._view_file(target)
 
         def clean():
-            self._run_then(core.cmd_isolate(cloud, strategy, voxel, stl), view)
+            self._run_then(core.cmd_isolate(cloud, strategy, voxel, stl), view,
+                           "Step 2 of 2 · Clean + mesh")
 
         self._run_then(core.cmd_export(name, preset["max_range"], voxel,
-                                       decimation=preset.get("decimation", 2)), clean)
+                                       decimation=preset.get("decimation", 2)), clean,
+                       "Step 1 of 2 · Export")
 
     # --------------------------------------------------------------- handlers
     def _decimation(self) -> int:
@@ -1149,23 +1377,28 @@ class ScannerWindow(QMainWindow):
     # ------------------------------------------------------------------ misc
     def _log(self, text: str):
         self.log.appendPlainText(text)
-        if text and not text.startswith("$"):
+        if text and not text.startswith(("$", "PROGRESS ")):
             self.statusBar().showMessage(text[:160], 6000)
 
     def closeEvent(self, e):
         self._save_settings()
         self.poller.stop()
+        self.activity.stop()
         if self.runner.busy():
             r = QMessageBox.question(
                 self, "Still running",
                 f"“{self.runner.cmd.title}” is still running. Stop it and quit?")
             if r != QMessageBox.StandardButton.Yes:
-                self.poller.start()
+                for t in (self.poller, self.activity):
+                    t.wait(2000)
+                    t._run = True       # stop() cleared it; restart the loops
+                    t.start()
                 e.ignore()
                 return
             self.runner.stop()
             self.runner.proc.waitForFinished(30000)
         self.poller.wait(2000)
+        self.activity.wait(2000)
         super().closeEvent(e)
 
 
@@ -1202,6 +1435,8 @@ class ScriptDriver(QObject):
                 self._say("scan -> " + str(w._run(core.cmd_map(w.fresh_cb.isChecked(), w.scan_mode))))
             elif verb == "rtabmap":
                 self._say("rtabmap window -> " + str(w._run(core.cmd_gui(w.fresh_cb.isChecked(), w.scan_mode))))
+            elif verb == "clean":
+                self._say("clean -> " + str(w._run(core.cmd_isolate(Path(arg), "raw_clean", 0.005))))
             elif verb == "finish":
                 w._on_finish()
                 self._say("finish requested")
@@ -1292,7 +1527,9 @@ def main(argv=None) -> int:
         QApplication.processEvents()
         rc = smoke_test(win, Path(args.screenshot) if args.screenshot else None)
         win.poller.stop()
+        win.activity.stop()
         win.poller.wait(2000)
+        win.activity.wait(2000)
         return rc
     win.show()
     driver = ScriptDriver(win, args.script.split(",")) if args.script else None

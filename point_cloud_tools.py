@@ -9,6 +9,18 @@ import numpy as np
 import open3d as o3d
 
 
+_PROGRESS_SPAN = (0.0, 100.0)   # main() maps isolate / mesh onto parts of 0-100
+MESH_MAX_POINTS = 1_200_000     # Poisson input cap (memory), see _prepare_mesh_cloud
+MESH_MAX_DEPTH = 10             # objects; scenes over 2 m are held to 9 (memory)
+
+
+def progress(frac, label):
+    """Print `PROGRESS <pct> <label>` (the GUI turns these into its progress bar).
+    `frac` is 0..1 within the current span."""
+    lo, hi = _PROGRESS_SPAN
+    print(f"PROGRESS {lo + (hi - lo) * max(0.0, min(1.0, frac)):.0f} {label}", flush=True)
+
+
 ISOLATION_PROFILES = {
     "raw_clean": {
         "label": "Raw clean",
@@ -64,12 +76,15 @@ def _clean_cloud(cloud, voxel):
         return cleaned
 
     if len(cleaned.points) > 350000:
+        progress(0.12, f"Regridding {len(cleaned.points):,} points")
         cleaned = cleaned.voxel_down_sample(max(voxel, 0.0015))
 
     if len(cleaned.points) > 1500:
+        progress(0.18, f"Removing statistical outliers ({len(cleaned.points):,} points)")
         cleaned, _ = cleaned.remove_statistical_outlier(nb_neighbors=24, std_ratio=1.8)
 
     if len(cleaned.points) > 400:
+        progress(0.3, "Removing isolated specks (radius filter)")
         filtered, _ = cleaned.remove_radius_outlier(
             nb_points=12,
             radius=max(voxel * 3.0, 0.01),
@@ -88,10 +103,18 @@ def _prepare_mesh_cloud(cloud, voxel):
     if len(working.points) == 0:
         return working
 
-    if len(working.points) > 1500000:
-        working = working.voxel_down_sample(max(voxel * 1.5, 0.0015))
+    # Poisson's memory grows with points x octree depth. On this 15 GB box a
+    # 4.4M-point room at depth 11 went past 9 GB (2026-10-26), so the mesh
+    # input is capped at ~1.2M points; the cloud itself keeps full detail.
+    v = max(voxel, 0.0015)
+    while len(working.points) > MESH_MAX_POINTS:
+        v *= 1.4
+        progress(0.33, f"Mesh: thinning {len(working.points):,} points to fit memory "
+                       f"(grid {v * 1000:.1f} mm)")
+        working = _finite_cloud(cloud).voxel_down_sample(v)
 
     search_radius = max(voxel * 4.0, 0.01)
+    progress(0.35, f"Mesh: estimating normals ({len(working.points):,} points)")
     working.estimate_normals(
         search_param=o3d.geometry.KDTreeSearchParamHybrid(
             radius=search_radius,
@@ -100,6 +123,7 @@ def _prepare_mesh_cloud(cloud, voxel):
     )
 
     if len(working.points) <= 50000:
+        progress(0.4, "Mesh: orienting normals")
         try:
             working.orient_normals_consistent_tangent_plane(
                 max(10, min(50, len(working.points) // 50 or 10))
@@ -121,9 +145,15 @@ def _reconstruct_mesh(cloud, voxel):
     # Octree depth from the scan size, so a cell is about one voxel: a fixed
     # depth 9 gave ~1 cm cells on a room (blocky) and wasted time on objects.
     extent = float(np.max(working.get_axis_aligned_bounding_box().get_extent()))
-    depth = int(np.clip(np.ceil(np.log2(max(extent, 1e-3) / max(voxel, 1e-4))), 7, 11))
+    depth = int(np.clip(np.ceil(np.log2(max(extent, 1e-3) / max(voxel, 1e-4))), 7, MESH_MAX_DEPTH))
+    if extent > 2.0:
+        # Poisson memory follows SURFACE area: a whole room at depth 10 peaked at
+        # 8.7 GB vs 3.9 GB at depth 9 (measured 2026-10-26, 15 GB box). Rooms get
+        # ~1 cm mesh cells; the exported cloud keeps the full detail.
+        depth = min(depth, 9)
     if len(working.points) < 5000:
         depth = min(depth, 8)
+    progress(0.45, f"Mesh: Poisson surface, octree depth {depth} (slowest step)")
     try:
         mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
             working,
@@ -147,6 +177,7 @@ def _reconstruct_mesh(cloud, voxel):
         )
         method = "ball_pivoting"
 
+    progress(0.85, f"Mesh: tidying {len(mesh.triangles):,} triangles")
     mesh.remove_degenerate_triangles()
     mesh.remove_duplicated_triangles()
     mesh.remove_duplicated_vertices()
@@ -166,9 +197,10 @@ def _reconstruct_mesh(cloud, voxel):
 
 
 def point_cloud_to_stl(input_path, output_path=None, voxel=0.003):
+    progress(0.02, f"Mesh: loading {os.path.basename(input_path)}")
     cloud = o3d.io.read_point_cloud(input_path)
-    if len(cloud.points) == 0:
-        raise ValueError(f"No points found in {input_path}")
+    if len(cloud.points) < 10:   # Open3D reads an unreadable PLY as a few zero points
+        raise ValueError(f"{input_path} has {len(cloud.points)} points: empty or unreadable")
 
     cleaned = _clean_cloud(cloud, voxel)
     if len(cleaned.points) == 0:
@@ -177,6 +209,7 @@ def point_cloud_to_stl(input_path, output_path=None, voxel=0.003):
     mesh, meta = _reconstruct_mesh(cleaned, voxel)
     output_path = output_path or os.path.splitext(input_path)[0] + ".stl"
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    progress(0.92, f"Mesh: writing {os.path.basename(output_path)}")
     if not o3d.io.write_triangle_mesh(output_path, mesh, write_ascii=False):
         raise IOError(f"Failed to write STL mesh to {output_path}")
 
@@ -301,9 +334,10 @@ def _profile_sequence(profile):
 
 
 def isolate_point_cloud_variants(input_path, output_dir=None, profile="tabletop_object", voxel=0.003):
+    progress(0.02, f"Loading {os.path.basename(input_path)}")
     cloud = o3d.io.read_point_cloud(input_path)
-    if len(cloud.points) == 0:
-        raise ValueError(f"No points found in {input_path}")
+    if len(cloud.points) < 10:   # Open3D reads an unreadable PLY as a few zero points
+        raise ValueError(f"{input_path} has {len(cloud.points)} points: empty or unreadable")
 
     cleaned = _clean_cloud(cloud, voxel)
     if len(cleaned.points) == 0:
@@ -314,7 +348,9 @@ def isolate_point_cloud_variants(input_path, output_dir=None, profile="tabletop_
 
     base_name = os.path.splitext(os.path.basename(input_path))[0]
     results = []
-    for name in _profile_sequence(profile):
+    seq = _profile_sequence(profile)
+    for k, name in enumerate(seq):
+        progress(0.45 + 0.5 * k / len(seq), f"Isolating: {ISOLATION_PROFILES[name]['label']}")
         if name == "raw_clean":
             variant = cleaned
             meta = {"selected_points": int(len(cleaned.points))}
@@ -386,12 +422,15 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
+        # with a mesh the clean/isolate part is ~40 % of the work, Poisson the rest
+        _PROGRESS_SPAN = (0.0, 40.0) if args.mesh_output else (0.0, 100.0)
         summary = isolate_point_cloud_variants(
             args.input,
             output_dir=args.output_dir,
             profile=args.strategy,
             voxel=args.voxel
         )
+        _PROGRESS_SPAN = (40.0, 100.0)
         print(f"Success: {summary['summary_path']}")
         for result in summary["profiles"]:
             print(f"  {result['profile']}: {result['points']} points -> {result['path']}")
@@ -404,6 +443,7 @@ if __name__ == "__main__":
             print(
                 f"  STL: {mesh_info['path']} ({mesh_info['triangles']} triangles, {mesh_info['method']})"
             )
+        print("PROGRESS 100 Done", flush=True)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
