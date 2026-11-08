@@ -21,8 +21,12 @@ ROOT="$(dirname "$SENSOR_HEAD")"
 TABLET="${TABLET:-100.114.120.67:5555}"
 CHROOT="${CHROOT:-/data/local/nhsystem/kali-arm64}"
 PC_PORT="${PC_PORT:-5600}"
-STAGE_REMOTE=/sdcard/xtion-head-stage
-SCANS_REMOTE=/sdcard/xtion-scans
+# Staging and pulling avoid /sdcard on purpose: that path goes through
+# Android's FUSE storage layer, which can wedge (every access then hangs).
+# /data/local/tmp is plain storage the adb shell user may write; the
+# recordings' raw backing path is read as root.
+STAGE_REMOTE=/data/local/tmp/xtion-head-stage
+SCANS_RAW=/data/media/0/xtion-scans      # what the chroot's /sdcard/xtion-scans is on disk
 PY="$ROOT/.venv/bin/python"; [ -x "$PY" ] || PY=python3
 CHROOT_ENV="env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root TERM=xterm"
 
@@ -59,9 +63,10 @@ ensure_mounts() {
 install() {
   connect
   ensure_mounts
-  local stage pc_host token
-  stage=$(mktemp -d)
-  trap 'rm -rf "$stage"' EXIT
+  local pc_host token
+  STAGE=$(mktemp -d)
+  trap 'rm -rf "$STAGE"' EXIT
+  local stage="$STAGE"
   echo ">> staging sensor_head/ (without the board image)"
   rsync -a --exclude __pycache__ --exclude '*.pyc' --exclude image "$SENSOR_HEAD"/ "$stage"/
   mkdir -p "$stage/wheels"
@@ -116,12 +121,15 @@ case "${1:-}" in
   pull)
     connect
     dest="$ROOT/output/recordings"; mkdir -p "$dest"
-    names=$(adbx shell "ls $SCANS_REMOTE 2>/dev/null" | tr -d '\r')
-    [ -n "$names" ] || { echo "no recordings on the tablet ($SCANS_REMOTE)"; exit 0; }
+    names=$(su_sh "ls $SCANS_RAW 2>/dev/null" | tr -d '\r')
+    [ -n "$names" ] || { echo "no recordings on the tablet ($SCANS_RAW)"; exit 0; }
     for name in $names; do
       case "$name" in .*) continue ;; esac
-      if [ -d "$dest/$name" ]; then echo "   $name: already here"
-      else echo "   pulling $name"; adbx pull "$SCANS_REMOTE/$name" "$dest/" >/dev/null; fi
+      if [ -d "$dest/$name" ]; then echo "   $name: already here"; continue; fi
+      echo "   pulling $name"
+      # a tar stream from root over adb: no FUSE, no permission trouble, one round trip
+      adbx exec-out "su -c 'tar -cf - -C $SCANS_RAW $name'" | tar -xf - -C "$dest" \
+        && [ -f "$dest/$name/meta.json" ] || { echo "   $name: pull FAILED"; rm -rf "${dest:?}/$name"; }
     done
     echo "recordings in $dest"
     ;;
