@@ -60,7 +60,9 @@ must be an argv list or a quoted path.
   tablet, and `tablet/` holds the tablet's touch page (`tablet_ui.py`, stdlib
   HTTP) plus `deploy_tablet.sh` (adb + chroot install). `station_scan.py import`
   fuses a sweep recording without Docker. Launcher modes: `head`, `record`,
-  `replay`, `receive`. See `sensor_head/README.md` and `sensor_head/tablet/README.md`.
+  `replay`, `receive`. `vendor/primesense` is the OpenNI2 Python binding, patched
+  for Python 3.13+ (the head uses it first). See `sensor_head/README.md` and
+  `sensor_head/tablet/README.md`.
 - **legacy/** — `run_prebuilt_stack.sh` (host-ROS launcher, hard-coded old paths)
   and `ai_scanner_agent.py` (LLM agent for the deleted Tkinter app; not wired to
   anything). Keep out of the main app unless re-integrated deliberately.

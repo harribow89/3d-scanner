@@ -29,7 +29,9 @@ continuous capture a few tens of MB.
 - A rooted Android tablet with a Linux chroot that has `/dev` and `/sys`
   available (Kali NetHunter does), `adb` reachable from the PC (USB, or
   tcp/5555 over Tailscale/Wi-Fi), and Magisk root granted to Shell. The
-  chroot must be Debian-family arm64: `libopenni2-0` comes from apt.
+  chroot must be Debian-family arm64: `libopenni2-0`, numpy and Pillow come
+  from apt; the OpenNI2 Python binding ships in `sensor_head/vendor/`
+  (patched for Python 3.13+, which Kali has).
 - The cameras on the tablet's USB-C port. One Xtion draws up to 500 mA, so a
   single camera can run straight off the port, but **use a powered USB-C hub
   for more than one** (and to keep the tablet charging). The sensors'
@@ -46,7 +48,7 @@ Any other Linux box works the same way — a Raspberry Pi, a laptop: run
 ```bash
 ./run_scanner_docker.sh receive                # 1. start the receiver (keep it running)
 sensor_head/tablet/deploy_tablet.sh ping       # 2. adb + root + chroot + USB visibility
-sensor_head/tablet/deploy_tablet.sh install    # 3. copy the code, apt/pip install in the chroot, write the config
+sensor_head/tablet/deploy_tablet.sh install    # 3. copy the code, apt install in the chroot, write the config
 sensor_head/tablet/deploy_tablet.sh start      # 4. start the capture page on the tablet
 ```
 
