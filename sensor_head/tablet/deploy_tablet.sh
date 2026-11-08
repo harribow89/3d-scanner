@@ -54,9 +54,12 @@ connect() {
 ensure_mounts() {
   # NetHunter mounts these when its own terminal boots the chroot; a plain
   # chroot from adb does not. The head needs /dev (USB) and /sys (port names).
-  su_sh "for d in dev proc sys; do mountpoint -q $CHROOT/\$d || mount -o bind /\$d $CHROOT/\$d; done; \
-         mountpoint -q $CHROOT/dev/pts || mount -o bind /dev/pts $CHROOT/dev/pts; \
-         mkdir -p $CHROOT/sdcard; mountpoint -q $CHROOT/sdcard || mount -o bind /sdcard $CHROOT/sdcard; \
+  # Existing mounts are read from /proc/mounts: `mountpoint` misses a bind
+  # mount that lives on the same filesystem as its parent (the chroot's
+  # /sdcard is one), and the chroot's /sdcard must be the RAW storage path,
+  # never Android's FUSE view, which is what wedged the tablet once.
+  su_sh "for d in dev proc sys dev/pts; do grep -qs \" $CHROOT/\$d \" /proc/mounts || mount -o bind /\$d $CHROOT/\$d; done; \
+         mkdir -p $CHROOT/sdcard; grep -qs \" $CHROOT/sdcard \" /proc/mounts || mount -o bind /data/media/0 $CHROOT/sdcard; \
          grep -q nameserver $CHROOT/etc/resolv.conf 2>/dev/null || printf \"nameserver 1.1.1.1\\nnameserver 8.8.8.8\\n\" > $CHROOT/etc/resolv.conf"
 }
 
