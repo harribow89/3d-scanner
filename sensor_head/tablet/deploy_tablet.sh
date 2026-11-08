@@ -26,7 +26,9 @@ SCANS_REMOTE=/sdcard/xtion-scans
 PY="$ROOT/.venv/bin/python"; [ -x "$PY" ] || PY=python3
 CHROOT_ENV="env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root TERM=xterm"
 
-adbx() { adb -s "$TABLET" "$@"; }
+# every adb call has a deadline: a wedged adb-over-TCP session otherwise hangs forever
+# (seen over Tailscale; `adb kill-server && adb connect …` clears it)
+adbx() { timeout "${ADB_TIMEOUT:-900}" adb -s "$TABLET" "$@"; }
 # one command string for the tablet's root shell: no single quotes inside, please
 su_sh() { adbx shell "su -c '$*'"; }
 # a bash script (one string, any quoting) run inside the chroot as root. It
