@@ -18,6 +18,8 @@ Workflow
     # then stitch every sweep into one room cloud:
     .venv/bin/python station_scan.py build             # -> output/room.ply
     .venv/bin/python station_scan.py list              # show captured sweeps
+    # a sweep recorded on the tablet (sensor_head/head_record.py) -> a sweep here, no Docker:
+    .venv/bin/python station_scan.py import output/recordings/<name>
 
 Each `capture`:
   1. brings up all cameras in cameras.json (multi_camera.launch.py),
@@ -202,6 +204,88 @@ def fuse_station(cams, raw_dir):
     return merged
 
 
+# --- import (a sweep recorded on the tablet; no Docker) ----------------------
+
+def import_recording(rec_dir, frames=None, max_m=6.0):
+    """Turn a recording made by sensor_head/head_record.py into one sweep:
+    back-project each camera's stacked depth frames with the intrinsics the
+    head reported, write the per-camera clouds exactly where capture_station.py
+    would, then fuse them with the calibrated extrinsics like `capture` does."""
+    import sys
+    sys.path.insert(0, os.path.join(HERE, "sensor_head"))
+    import head_recording as hr
+
+    rd = os.path.abspath(rec_dir)
+    if not hr.is_recording(rd):
+        print(f"[import] {rec_dir} is not a recording (no meta.json + frames.bin)")
+        return None
+    r = hr.Reader(rd)
+    if frames is None and r.meta.get("mode") != "sweep":
+        frames = DEFAULT_FRAMES          # a continuous recording: stack its first N frames
+    # camera order: the roster's order where the names match, the rest after
+    roster_ns = [c["ns"] for c in roster()]
+    head_cams = list(r.hello.get("cameras", []))
+    head_cams.sort(key=lambda c: (roster_ns.index(c["ns"]) if c["ns"] in roster_ns
+                                  else len(roster_ns), c["ns"]))
+    cams = [{"ns": c["ns"], "port": c.get("port")} for c in head_cams]
+    if not cams:
+        print("[import] the recording lists no cameras")
+        return None
+    idx = _next_sweep_index()
+    raw_dir = os.path.join(SWEEP_DIR, f"sweep_{idx:02d}_cams")
+    os.makedirs(raw_dir, exist_ok=True)
+    print(f"[import] {os.path.basename(rd)} ({r.meta.get('mode')}, {len(cams)} camera(s), "
+          f"{'all' if frames is None else frames} frames per camera) -> sweep {idx:02d}")
+
+    depth = {c["ns"]: [] for c in cams}
+    rgb = {c["ns"]: [] for c in cams}
+    for h, payload in r.records():
+        if payload is None or h["ns"] not in depth:
+            continue
+        if h["kind"] == "depth":
+            if frames and len(depth[h["ns"]]) >= frames:
+                continue
+            depth[h["ns"]].append((h["t"], np.frombuffer(payload, np.uint16).reshape(h["h"], h["w"])))
+        elif h["kind"] == "rgb":
+            if frames and len(rgb[h["ns"]]) >= 2 * frames:
+                continue
+            rgb[h["ns"]].append((h["t"], np.frombuffer(payload, np.uint8).reshape(h["h"], h["w"], 3)))
+
+    for c in head_cams:
+        ns = c["ns"]
+        if not depth[ns]:
+            print(f"   {ns}: no depth frames — skipped")
+            continue
+        h0, w0 = depth[ns][0][1].shape
+        sx, sy = w0 / float(c["width"] or w0), h0 / float(c["height"] or h0)
+        fx, fy, cx, cy = c["fx"] * sx, c["fy"] * sy, c["cx"] * sx, c["cy"] * sy
+        xyz_all, col_all = [], []
+        for t, d in depth[ns]:
+            col = None
+            if rgb[ns]:
+                _, col = min(rgb[ns], key=lambda tr: abs(tr[0] - t))
+                if col.shape[:2] != d.shape:
+                    col = None
+            xyz, cols = hr.depth_to_points(d, col, fx, fy, cx, cy, max_m=max_m)
+            xyz_all.append(xyz)
+            col_all.append(cols)
+        n = hr.write_ply(os.path.join(raw_dir, f"{ns}.ply"),
+                         np.concatenate(xyz_all), np.concatenate(col_all))
+        print(f"   {ns}: {len(depth[ns])} frames -> {n} pts")
+
+    sweep = fuse_station(cams, raw_dir)
+    if sweep is None:
+        print("[import] FAILED: no camera clouds in this recording.")
+        return None
+    out = os.path.join(SWEEP_DIR, f"sweep_{idx:02d}.ply")
+    o3d.io.write_point_cloud(out, sweep)
+    with open(os.path.join(SWEEP_DIR, f"sweep_{idx:02d}.json"), "w") as fh:
+        json.dump({"source": rd, "label": r.meta.get("label", ""), "mode": r.meta.get("mode"),
+                   "frames": {ns: len(v) for ns, v in depth.items()}}, fh, indent=1)
+    print(f"[station] sweep {idx:02d}: {len(sweep.points)} pts -> {out}")
+    return out
+
+
 # --- build (global registration of sweeps) -----------------------------------
 
 def _prep_fpfh(pcd, voxel):
@@ -336,10 +420,20 @@ def main():
     bld.add_argument("--out", default=os.path.join(HERE, "output", "room.ply"))
     sub.add_parser("list", help="list captured sweeps")
     sub.add_parser("clear", help="delete all captured sweeps")
+    imp = sub.add_parser("import", help="turn tablet recording(s) into sweep(s); no Docker needed")
+    imp.add_argument("recording", nargs="+",
+                     help="recording folder(s) made by sensor_head/head_record.py")
+    imp.add_argument("--frames", type=int, default=None,
+                     help="depth frames stacked per camera (default: all of a sweep "
+                          f"recording, {DEFAULT_FRAMES} of a continuous one)")
+    imp.add_argument("--max-depth", type=float, default=6.0, help="drop points beyond this (m)")
     args = ap.parse_args()
 
     if args.cmd == "capture":
         capture(args.frames)
+    elif args.cmd == "import":
+        for p in args.recording:
+            import_recording(p, args.frames, args.max_depth)
     elif args.cmd == "build":
         build(args.voxel, args.out)
     elif args.cmd == "list":

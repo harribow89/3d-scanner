@@ -26,6 +26,27 @@ SCANNER_HEAD=127.0.0.1 ./run_scanner_docker.sh multi   # any multi-camera mode v
 .venv/bin/python calibrate_head.py --head 127.0.0.1    # extrinsics -> output/camera_extrinsics.json
 ```
 
+## Record now, process later (the tablet)
+
+The head's stream can be written to disk and played back, so the cameras can
+be carried around on a tablet (or any small Linux box) and the PC processes
+the recording afterwards, with nothing else changed. `tablet/README.md`
+has the tablet setup; the pieces are:
+
+```
+./run_scanner_docker.sh record --sweep 12 --label desk       # head_record.py: head -> output/recordings/<rec>/
+./run_scanner_docker.sh record --seconds 60                  # continuous, for SLAM
+./run_scanner_docker.sh replay output/recordings/<rec>       # head_replay.py: serves it on 127.0.0.1:5599
+SCANNER_HEAD=127.0.0.1 ./run_scanner_docker.sh multi         # …and every head mode works on it
+.venv/bin/python station_scan.py import output/recordings/<rec>   # a sweep recording -> output/sweeps/, no Docker
+./run_scanner_docker.sh receive                              # pc_receiver.py: accepts uploads from the tablet (tcp/5600)
+sensor_head/tablet/deploy_tablet.sh install|start|pull       # put the head + capture page on the tablet over adb
+```
+
+Format: `head_recording.py` (zlib depth, JPEG colour, the hello with the
+intrinsics in `meta.json`). Tests: `tests/test_head_recording.py`,
+`tests/test_pc_receiver.py`.
+
 ## What makes three cameras reliable
 
 | Problem seen | Fix |
