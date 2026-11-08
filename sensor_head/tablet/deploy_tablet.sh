@@ -72,9 +72,6 @@ install() {
   local stage="$STAGE"
   echo ">> staging sensor_head/ (without the board image)"
   rsync -a --exclude __pycache__ --exclude '*.pyc' --exclude image "$SENSOR_HEAD"/ "$stage"/
-  mkdir -p "$stage/wheels"
-  "$PY" -m pip download -q --no-deps -d "$stage/wheels" primesense 2>/dev/null \
-    || echo "   (could not download the primesense wheel here; the tablet will pip install it)"
   pc_host="${PC_HOST:-$(tailscale ip -4 2>/dev/null | head -1 || true)}"
   token=$("$PY" -c "import sys; sys.path.insert(0, sys.argv[1]); import pc_receiver as p; print(p.load_token(sys.argv[2])[0])" \
           "$SENSOR_HEAD" "$ROOT/output/recordings")
@@ -91,7 +88,7 @@ install() {
   su_sh "rm -rf $CHROOT/opt/xtion-head && mkdir -p $CHROOT/opt && cp -r $STAGE_REMOTE $CHROOT/opt/xtion-head && \
          chmod -R u+rwX,go+rX $CHROOT/opt/xtion-head && chmod 755 $CHROOT/opt/xtion-head/tablet/xtion-tablet $CHROOT/opt/xtion-head/tablet/install_chroot.sh && \
          rm -rf $STAGE_REMOTE"
-  echo ">> installing inside the chroot (apt: OpenNI2, numpy, Pillow; pip: primesense)"
+  echo ">> installing inside the chroot (apt: OpenNI2, numpy, Pillow)"
   in_chroot "bash /opt/xtion-head/tablet/install_chroot.sh"
   echo
   echo "Done. Next:"

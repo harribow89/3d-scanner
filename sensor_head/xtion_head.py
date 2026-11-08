@@ -46,11 +46,18 @@ import time
 
 import numpy as np
 
+# The OpenNI2 Python binding ships with us (sensor_head/vendor/primesense, the
+# PyPI 'primesense' 2.2.0.30 package with one fix for Python >= 3.13); a
+# system/pip copy is used only when the vendored one is absent (the i.MX6 image).
+_VENDOR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vendor")
+if os.path.isdir(os.path.join(_VENDOR, "primesense")):
+    sys.path.insert(0, _VENDOR)
 try:
     from primesense import openni2
     from primesense import _openni2 as c_api
-except ImportError:  # pragma: no cover
-    sys.exit("xtion_head: the 'primesense' Python package is missing (pip install primesense)")
+except (ImportError, TypeError) as _e:  # pragma: no cover
+    sys.exit(f"xtion_head: the OpenNI2 Python binding failed to load ({_e}); "
+             "copy sensor_head/vendor/ next to this file, or pip install primesense")
 
 VENDOR = "1d27"
 DEFAULT_PORT = 5599
