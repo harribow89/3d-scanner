@@ -1,0 +1,16 @@
+{
+  "_comment": "Config for the tablet capture page (sensor_head/tablet/tablet_ui.py). deploy_tablet.sh fills pc_url and token from the PC.",
+  "recordings": "/sdcard/xtion-scans",
+  "listen": "127.0.0.1:8080",
+  "head": "127.0.0.1:5599",
+  "head_cmd": ["python3", "/opt/xtion-head/xtion_head.py",
+               "--expect", "1", "--settle", "8",
+               "--width", "320", "--height", "240", "--fps", "15",
+               "--config", "/etc/xtion-head.json"],
+  "head_autostart": true,
+  "sweep_frames": 12,
+  "record_fps": 15,
+  "color": true,
+  "pc_url": "",
+  "token": ""
+}

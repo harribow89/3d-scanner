@@ -51,6 +51,16 @@ must be an argv list or a quoted path.
   `fuse_check.py` (FPFH+RANSAC→ICP, chained pairs), `station_scan.py` +
   `capture_station.py` (sweeps + pose-graph fusion). See `CALIBRATION_GUIDE.md`
   and `MATTERPORT_REPLICATION_PLAN.md`.
+- **sensor_head/** — the cameras as a network device. `xtion_head.py` streams every
+  Xtion over tcp/5599 (JSON line + raw frame; runs on the PC, the i.MX6 board or
+  the tablet's Linux chroot); `head_bridge.py` (container) turns that back into
+  the openni2 topics, so `SCANNER_HEAD=host` makes any mode use a head.
+  `head_record.py` / `head_replay.py` write and replay that stream
+  (`head_recording.py` is the format), `pc_receiver.py` accepts uploads from the
+  tablet, and `tablet/` holds the tablet's touch page (`tablet_ui.py`, stdlib
+  HTTP) plus `deploy_tablet.sh` (adb + chroot install). `station_scan.py import`
+  fuses a sweep recording without Docker. Launcher modes: `head`, `record`,
+  `replay`, `receive`. See `sensor_head/README.md` and `sensor_head/tablet/README.md`.
 - **legacy/** — `run_prebuilt_stack.sh` (host-ROS launcher, hard-coded old paths)
   and `ai_scanner_agent.py` (LLM agent for the deleted Tkinter app; not wired to
   anything). Keep out of the main app unless re-integrated deliberately.
@@ -67,6 +77,9 @@ tests/test_preview_docker.sh                 # fake camera → preview node (Doc
 SCANNER_FAKE_CAMERA=1 ./run_scanner_docker.sh camera 8     # launcher end to end
 SCANNER_FAKE_CAMERA=1 timeout -s TERM 80 ./run_scanner_docker.sh map   # simulated SLAM
 ./run_scanner_docker.sh export rtabmap.db output/scan.ply 4.0 0.012
+./run_scanner_docker.sh head && ./run_scanner_docker.sh record --sweep 12   # head on this PC -> output/recordings/
+./run_scanner_docker.sh replay output/recordings/<rec>   # then SCANNER_HEAD=127.0.0.1 <any mode>
+sensor_head/tablet/deploy_tablet.sh ping|install|start|pull   # the tablet (adb over Tailscale)
 ```
 
 Two simulated cameras must not run at once (`--network host`, one DDS domain).

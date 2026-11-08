@@ -19,7 +19,11 @@
 #   ./run_scanner_docker.sh multi_slam           # EXPERIMENTAL 3-camera SLAM
 #   ./run_scanner_docker.sh overlap              # multi-cam: check adjacent-camera overlap
 #   ./run_scanner_docker.sh calibrate [--offline [dir]]   # multi-cam: solve extrinsics
-#   ./run_scanner_docker.sh station capture|build|list|clear   # Matterport-style sweeps
+#   ./run_scanner_docker.sh station capture|build|list|clear|import <rec>   # Matterport-style sweeps
+#   ./run_scanner_docker.sh head [args]          # stream the Xtions plugged in HERE as a sensor head (tcp/5599)
+#   ./run_scanner_docker.sh record [args]        # record the head into output/recordings/ (sensor_head/head_record.py)
+#   ./run_scanner_docker.sh replay <recording>   # serve a recording as the head; then SCANNER_HEAD=127.0.0.1 <mode>
+#   ./run_scanner_docker.sh receive              # accept recordings the tablet sends (tcp/5600 on Tailscale)
 #   ./run_scanner_docker.sh stop                 # stop every scanner container (frees the cameras)
 #   ./run_scanner_docker.sh logs                 # show the latest ROS logs (ros_logs/)
 #   ./run_scanner_docker.sh shell                # interactive ROS shell in the container
@@ -307,6 +311,33 @@ case "$cmd" in
     "$PY" -c "import primesense" 2>/dev/null || {
       echo "ERROR: the 'primesense' package is missing: $PY -m pip install primesense" >&2; exit 5; }
     exec "$PY" -u "$HERE/sensor_head/xtion_head.py" --config "$HERE/cameras.json" "$@"
+    ;;
+
+  record)
+    # Record the running head (SCANNER_HEAD, default 127.0.0.1) into
+    # output/recordings/. Same program the tablet runs. Extra args, e.g.
+    # --sweep 12 --label kitchen, or --seconds 60.
+    shift || true
+    PY="$HERE/.venv/bin/python"; [ -x "$PY" ] || PY="python3"
+    exec "$PY" -u "$HERE/sensor_head/head_record.py" "${SCANNER_HEAD:-127.0.0.1}" \
+      --out "$OUT/recordings" "$@"
+    ;;
+
+  replay)
+    # Serve a recording (from the tablet, or from `record`) as the sensor head
+    # on 127.0.0.1:5599; then run any mode with SCANNER_HEAD=127.0.0.1.
+    shift || true
+    [ $# -ge 1 ] || { echo "usage: $0 replay <recording dir> [--loop|--once] [--speed X]" >&2; exit 2; }
+    PY="$HERE/.venv/bin/python"; [ -x "$PY" ] || PY="python3"
+    exec "$PY" -u "$HERE/sensor_head/head_replay.py" "$@"
+    ;;
+
+  receive)
+    # Accept recordings the tablet's capture page sends (sensor_head/pc_receiver.py),
+    # on this PC's Tailscale address when tailscale is up. Extra args go to it.
+    shift || true
+    PY="$HERE/.venv/bin/python"; [ -x "$PY" ] || PY="python3"
+    exec "$PY" -u "$HERE/sensor_head/pc_receiver.py" --out "$OUT/recordings" "$@"
     ;;
 
   stop)

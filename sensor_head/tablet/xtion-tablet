@@ -1,0 +1,58 @@
+#!/bin/bash
+# xtion-tablet — run the tablet capture page (installed to /usr/local/bin by
+# install_chroot.sh; runs inside the tablet's Linux chroot as root).
+#
+#   xtion-tablet run [args]     foreground (Ctrl-C stops cameras + page)
+#   xtion-tablet start          background, log in /var/log/xtion-tablet.log
+#   xtion-tablet stop
+#   xtion-tablet status
+#   xtion-tablet logs [N]
+#   xtion-tablet list           which PrimeSense sensors are on USB
+APP=/opt/xtion-head
+CFG=/etc/xtion-tablet.json
+LOG=/var/log/xtion-tablet.log
+PIDF=/tmp/xtion-tablet.pid
+
+pid_of() { pgrep -f "tablet_ui.py" | head -1; }
+
+case "${1:-run}" in
+  run)
+    shift || true
+    exec python3 "$APP/tablet/tablet_ui.py" --config "$CFG" "$@"
+    ;;
+  start)
+    if p=$(pid_of) && [ -n "$p" ]; then echo "already running (pid $p)"; exit 0; fi
+    mkdir -p "$(dirname "$LOG")"
+    setsid nohup python3 "$APP/tablet/tablet_ui.py" --config "$CFG" >>"$LOG" 2>&1 </dev/null &
+    echo $! >"$PIDF"
+    sleep 1.5
+    if p=$(pid_of) && [ -n "$p" ]; then
+      listen=$(python3 -c "import json;print(json.load(open('$CFG')).get('listen','127.0.0.1:8080'))" 2>/dev/null || echo 127.0.0.1:8080)
+      echo "started (pid $p): open http://$listen/ on the tablet"
+    else
+      echo "FAILED to start; last log lines:"; tail -n 20 "$LOG"; exit 1
+    fi
+    ;;
+  stop)
+    pkill -TERM -f "tablet_ui.py" 2>/dev/null && echo "stopping page" || echo "page not running"
+    sleep 1
+    pkill -TERM -f "head_record.py" 2>/dev/null || true
+    pkill -TERM -f "xtion_head.py" 2>/dev/null && echo "stopped cameras" || true
+    rm -f "$PIDF"
+    ;;
+  status)
+    if p=$(pid_of) && [ -n "$p" ]; then echo "page: running (pid $p)"; else echo "page: stopped"; fi
+    if h=$(pgrep -f "xtion_head.py" | head -1) && [ -n "$h" ]; then echo "cameras: running (pid $h)"; else echo "cameras: stopped"; fi
+    n=$(grep -ls '^1d27$' /sys/bus/usb/devices/*/idVendor 2>/dev/null | wc -l)
+    echo "USB: $n PrimeSense sensor(s)"
+    ;;
+  logs)
+    tail -n "${2:-40}" "$LOG" 2>/dev/null || echo "no log yet"
+    ;;
+  list)
+    exec python3 "$APP/xtion_head.py" --list
+    ;;
+  *)
+    sed -n '2,11p' "$0"; exit 2
+    ;;
+esac
